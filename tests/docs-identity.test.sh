@@ -31,7 +31,11 @@ host_tag="NYC-BETTER""MENT"
 dotpath="src/dot""files"
 allowed="github.com/$owner/papercuts"
 
-files=(README.md docs/install.md LICENSE CONTRIBUTING.md)
+# The four files the acceptance criterion names, plus every later reader-facing
+# doc — added explicitly, never as a glob: docs/plugin-surface.md is excluded on
+# purpose (internal probe notes with a deliberate dotfiles reference, linked
+# only from CONTRIBUTING's internal-notes section).
+files=(README.md docs/install.md docs/schema-compat.md LICENSE CONTRIBUTING.md)
 
 for rel in "${files[@]}"; do
   path="$repo_root/$rel"
@@ -50,7 +54,10 @@ with open(path, encoding="utf-8") as handle:
 
 for lineno, line in enumerate(lines, 1):
     # Blank out every occurrence of the one allowed string before matching, so
-    # the install URL cannot satisfy a needle it happens to contain.
+    # the install URL cannot satisfy a needle it happens to contain. The
+    # blanking is deliberately exact — lowercase https form only: any other
+    # spelling of the URL fails loudly, which pins the docs to one canonical
+    # form.
     haystack = line.replace(allowed, " " * len(allowed)).lower()
     for needle in needles:
         if needle.lower() in haystack:
