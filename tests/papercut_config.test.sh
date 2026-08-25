@@ -15,8 +15,9 @@ fail=0
 workdir="$(mktemp -d "${TMPDIR:-/tmp}/papercut-test.XXXXXX")"
 trap 'rm -rf "$workdir"' EXIT
 
-# The prelude pins HOME to a throwaway, but XDG_CONFIG_HOME could still leak
-# in from the developer's environment and steer the fallback tests.
+# The prelude already pins HOME and unsets both of these; repeated here because
+# this suite's precedence tests are the ones that break if either ever leaks in
+# from the developer's environment.
 unset XDG_CONFIG_HOME
 unset PAPERCUT_CONFIG
 
@@ -323,6 +324,86 @@ else
   fail=1
 fi
 assert_contains "pre-3.11 interpreter: message names the 3.11 requirement" "$err" "3.11"
+
+# --- 13. [profile] strict_hosts: emitted for shell consumers, returned as a
+# plain list for Python ones, and absent/empty in both views when unset. ---
+strict_hosts_py() {
+  # strict_hosts_py [env-assignments...] -> prints the patterns, one per line
+  env "$@" python3 -c '
+import sys
+sys.path.insert(0, sys.argv[1])
+import papercut_config
+for pattern in papercut_config.strict_hosts():
+    print(pattern)
+' "$(cd "$(dirname "$resolver")" && pwd)"
+}
+
+d="$(next_dir)"
+cat >"$d/config.toml" <<'EOF'
+[ledger]
+repo = "acme/papercuts"
+
+[profile]
+strict_hosts = ["WORK-*", "lab-??.example.com"]
+EOF
+out="$(PAPERCUT_CONFIG="$d/config.toml" python3 "$resolver")"
+rc=$?
+assert_eq "strict_hosts: exit 0" "0" "$rc"
+assert_eq "strict_hosts: emitted newline-separated and eval-safe" \
+  "$(printf 'WORK-*\nlab-??.example.com')" \
+  "$(eval_var "$out" PAPERCUT_CONFIG_PROFILE_STRICT_HOSTS)"
+assert_eq "strict_hosts(): same patterns for Python importers" \
+  "$(printf 'WORK-*\nlab-??.example.com')" \
+  "$(strict_hosts_py PAPERCUT_CONFIG="$d/config.toml")"
+
+# absent [profile] table, and no config file at all: empty, exit 0 (the
+# always-resolves contract holds for this key too)
+d="$(next_dir)"
+printf '[ledger]\nrepo = "acme/papercuts"\n' >"$d/config.toml"
+out="$(PAPERCUT_CONFIG="$d/config.toml" python3 "$resolver")"
+assert_eq "absent [profile]: strict_hosts key present but empty" \
+  "" "$(eval_var "$out" PAPERCUT_CONFIG_PROFILE_STRICT_HOSTS)"
+assert_eq "absent [profile]: strict_hosts() returns nothing" \
+  "" "$(strict_hosts_py PAPERCUT_CONFIG="$d/config.toml")"
+assert_eq "absent config file: strict_hosts() returns nothing" \
+  "" "$(strict_hosts_py PAPERCUT_CONFIG="$d/nope.toml")"
+
+# unknown keys under [profile] are ignored — notably any key that looks like it
+# names the strict marker path, which is a hardcoded literal in
+# papercut_append.py precisely so no config can move it
+d="$(next_dir)"
+cat >"$d/config.toml" <<'EOF'
+[profile]
+marker = "/nonexistent"
+strict_marker = "/nonexistent"
+EOF
+rc_unknown="$(PAPERCUT_CONFIG="$d/config.toml" python3 "$resolver" >/dev/null 2>&1; echo $?)"
+assert_eq "marker-looking keys under [profile]: ignored, exit 0" "0" "$rc_unknown"
+
+# --- 14. wrongly-typed strict_hosts: the same hard error as any other bad
+# value. A malformed key that MEANS to add strictness must never read as "no
+# patterns". ---
+for bad in 'strict_hosts = "WORK-*"' 'strict_hosts = ["WORK-*", 7]' ; do
+  d="$(next_dir)"
+  printf '[profile]\n%s\n' "$bad" >"$d/config.toml"
+  rc_bad="$(PAPERCUT_CONFIG="$d/config.toml" python3 "$resolver" >/dev/null 2>&1; echo $?)"
+  if [ "$rc_bad" -ne 0 ]; then
+    printf 'ok   (wrongly-typed %s: non-zero exit)\n' "$bad"
+  else
+    printf 'FAIL (wrongly-typed %s: expected non-zero exit, got 0)\n' "$bad"
+    fail=1
+  fi
+done
+
+d="$(next_dir)"
+printf 'profile = "not-a-table"\n' >"$d/config.toml"
+rc_bad="$(PAPERCUT_CONFIG="$d/config.toml" python3 "$resolver" >/dev/null 2>&1; echo $?)"
+if [ "$rc_bad" -ne 0 ]; then
+  printf 'ok   (non-table [profile]: non-zero exit)\n'
+else
+  printf 'FAIL (non-table [profile]: expected non-zero exit, got 0)\n'
+  fail=1
+fi
 
 echo
 if [ "$fail" -eq 0 ]; then

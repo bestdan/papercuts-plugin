@@ -16,11 +16,11 @@
 #   - Blank lines are ignored.
 #   - Lines starting with "#" are comments and are ignored.
 #   - On the default profile, a match is redacted to "[redacted]".
-#   - On the work (betterment) profile, this file is REQUIRED: missing,
-#     empty (or all comments/blank), or world-readable (mode & 0o004) causes
-#     the gate to reject every record outright — work auto-capture stays
-#     inert until you hand-populate this file. A pre-redaction match on the
-#     work profile also rejects the whole record (it is not redacted).
+#   - On the strict profile, this file is REQUIRED: missing, empty (or all
+#     comments/blank), or world-readable (mode & 0o004) causes the gate to
+#     reject every record outright — strict-profile auto-capture stays inert
+#     until you hand-populate this file. A pre-redaction match on the strict
+#     profile also rejects the whole record (it is not redacted).
 #
 # Illustrative (fake) examples — uncomment and replace with your own real,
 # sensitive literals in the actual ~/.config/papercuts/denylist.txt:

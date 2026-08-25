@@ -62,31 +62,15 @@ rec() {
   printf '{"id":"%s","v":1,"producer":"test/1","ts":"%s","machine":"default","source":"manual","category":"harness_config","severity":"low","title":"t","description":"d","repo":"dotfiles"}\n' "$1" "$2"
 }
 
-# A stub publisher that records every id it's handed into $PAPERCUT_TEST_LEDGER
-# and exits 0, unless $PAPERCUT_TEST_FAIL_MONTHS lists the month it's called
-# with (space-separated), in which case it exits 1 without recording anything.
-# Fake `hostname` shim: put a dir on PATH ahead of the real `hostname` so the
-# flusher's early machine detection sees whatever host we want, without
-# touching the real machine's hostname. Mirrors the git-shim technique used
-# below for the divergent-remote test.
-hostname_shim_dir() {
-  # hostname_shim_dir <fake-hostname> -> prints a dir to prepend to PATH
-  local fake_host="$1" d
-  d="$(next_dir)"
-  cat >"$d/hostname" <<EOF
-#!/usr/bin/env bash
-printf '%s\n' "$fake_host"
-EOF
-  chmod +x "$d/hostname"
-  printf '%s' "$d"
-}
-
-# The rest of this suite assumes the DEFAULT profile unless a test explicitly
-# overrides it (sections 21/22 below) — pin PATH to a non-betterment hostname
-# shim so every existing assertion is deterministic regardless of the real
-# machine running the suite (which may itself be a Betterment host).
-default_host_shim="$(hostname_shim_dir "some-laptop")"
-export PATH="$default_host_shim:$PATH"
+# The flusher derives its profile by calling papercut_append.detect_machine(),
+# the same resolver the gate uses, behind the $PAPERCUT_DETECT_CMD test seam
+# (same name and semantics extractor-run.sh has). The rest of this suite
+# assumes the DEFAULT profile, so pin the seam here — that makes every existing
+# assertion deterministic regardless of the machine running the suite, which may
+# itself hold the strict marker or match a configured strict_hosts pattern.
+# Sections 21/22/24/26 override it per-invocation; section 26b drops it entirely
+# to exercise the real resolver end-to-end.
+export PAPERCUT_DETECT_CMD='echo default'
 
 # Ledger-identity config fixtures. The publisher's origin allowlist is built
 # from the config file (task 3b), so every fixture that drives the REAL
@@ -113,6 +97,9 @@ ledger_config_repo() {
   printf '%s' "$cfg"
 }
 
+# A stub publisher that records every id it's handed into $PAPERCUT_TEST_LEDGER
+# and exits 0, unless $PAPERCUT_TEST_FAIL_MONTHS lists the month it's called
+# with (space-separated), in which case it exits 1 without recording anything.
 stub_publish="$workdir/stub_publish.sh"
 cat >"$stub_publish" <<'EOF'
 #!/usr/bin/env bash
@@ -1102,11 +1089,13 @@ clone_ledger "$bare" "$clone"
 export PAPERCUT_LEDGER_DIR="$clone"
 export PAPERCUT_CONFIG="$(ledger_config "file://$bare")"
 gate="$here/papercut_append.py"
-# The gate derives its profile ONLY from the real hostname (no env override, by
-# design — see papercut_append.py's detect_machine). To drive the default
-# profile on any host (incl. a real NYC-BETTERMENT* laptop), invoke it via
-# runpy with socket.gethostname monkeypatched in-process — the same mechanism
-# papercut_append.test.sh uses. Production calls the gate directly with no patch.
+# The gate derives its profile from the real hostname and the strict marker,
+# with no env override of either (by design — see papercut_append.py's
+# detect_machine). HOME is the prelude's throwaway, so no marker is in reach;
+# to make the hostname half deterministic too, invoke the gate via runpy with
+# socket.gethostname monkeypatched in-process — the same mechanism
+# papercut_append.test.sh uses. Production calls the gate directly with no
+# patch.
 printf '%s' '{"category":"harness_config","severity":"low","title":"e2e title","description":"e2e description"}' \
   | PAPERCUT_SPOOL="$PAPERCUT_SPOOL" PAPERCUT_LOCK="$PAPERCUT_LOCK" python3 -c '
 import runpy, socket, sys
@@ -1131,7 +1120,7 @@ assert_eq "e2e: record byte-identical to what the gate appended" "$appended_line
 unset PAPERCUT_LEDGER_DIR PAPERCUT_CONFIG
 
 # =============================================================================
-# 21. betterment profile + normal run (no --force), non-empty spool -> HOLDS:
+# 21. strict profile + normal run (no --force), non-empty spool -> HOLDS:
 #     nothing published, spool untouched, exit 0, a hold line in the log.
 # =============================================================================
 d="$(new_env_dir)"
@@ -1140,24 +1129,23 @@ export PAPERCUT_PUBLISH_CMD="$stub_publish"
 export PAPERCUT_TEST_LEDGER="$d/ledger.txt"
 : >"$PAPERCUT_TEST_LEDGER"
 rec pc_hold_1 "2026-12-01T00:00:00Z" >"$PAPERCUT_SPOOL"
-work_shim="$(hostname_shim_dir "NYC-BETTERMENT01487")"
-PATH="$work_shim:$PATH" bash "$flush"
+PAPERCUT_DETECT_CMD='echo strict' bash "$flush"
 rc=$?
-assert_eq "betterment no-force: holds, exits 0" "0" "$rc"
-assert_true "betterment no-force: spool untouched" "$([ -s "$PAPERCUT_SPOOL" ] && echo 1 || echo 0)"
-assert_true "betterment no-force: nothing published" "$([ ! -s "$PAPERCUT_TEST_LEDGER" ] && echo 1 || echo 0)"
-assert_true "betterment no-force: no success stamp written" "$([ ! -f "$PAPERCUT_FLUSH_OK" ] && echo 1 || echo 0)"
-assert_true "betterment no-force: hold line logged" "$(grep -q 'hold reason=work-host-review' "$PAPERCUT_LOG" && echo 1 || echo 0)"
+assert_eq "strict no-force: holds, exits 0" "0" "$rc"
+assert_true "strict no-force: spool untouched" "$([ -s "$PAPERCUT_SPOOL" ] && echo 1 || echo 0)"
+assert_true "strict no-force: nothing published" "$([ ! -s "$PAPERCUT_TEST_LEDGER" ] && echo 1 || echo 0)"
+assert_true "strict no-force: no success stamp written" "$([ ! -f "$PAPERCUT_FLUSH_OK" ] && echo 1 || echo 0)"
+assert_true "strict no-force: hold line logged" "$(grep -q 'hold reason=strict-profile-review' "$PAPERCUT_LOG" && echo 1 || echo 0)"
 
 # =============================================================================
-# 22. betterment profile + --force, non-empty spool -> publishes (bypasses
+# 22. strict profile + --force, non-empty spool -> publishes (bypasses
 #     the hold), spool consumed.
 # =============================================================================
-PATH="$work_shim:$PATH" bash "$flush" --force
+PAPERCUT_DETECT_CMD='echo strict' bash "$flush" --force
 rc=$?
-assert_eq "betterment --force: publishes, exits 0" "0" "$rc"
-assert_true "betterment --force: spool consumed" "$([ ! -s "$PAPERCUT_SPOOL" ] && echo 1 || echo 0)"
-assert_true "betterment --force: record published" "$(grep -qx pc_hold_1 "$PAPERCUT_TEST_LEDGER" && echo 1 || echo 0)"
+assert_eq "strict --force: publishes, exits 0" "0" "$rc"
+assert_true "strict --force: spool consumed" "$([ ! -s "$PAPERCUT_SPOOL" ] && echo 1 || echo 0)"
+assert_true "strict --force: record published" "$(grep -qx pc_hold_1 "$PAPERCUT_TEST_LEDGER" && echo 1 || echo 0)"
 
 # =============================================================================
 # 23. default profile + normal run -> UNCHANGED: still publishes/consumes
@@ -1169,8 +1157,7 @@ export PAPERCUT_PUBLISH_CMD="$stub_publish"
 export PAPERCUT_TEST_LEDGER="$d/ledger.txt"
 : >"$PAPERCUT_TEST_LEDGER"
 rec pc_default_normal "2026-12-02T00:00:00Z" >"$PAPERCUT_SPOOL"
-default_shim="$(hostname_shim_dir "some-laptop")"
-PATH="$default_shim:$PATH" bash "$flush"
+bash "$flush"
 rc=$?
 assert_eq "default profile no-force: unchanged, exits 0" "0" "$rc"
 assert_true "default profile no-force: spool consumed" "$([ ! -s "$PAPERCUT_SPOOL" ] && echo 1 || echo 0)"
@@ -1186,7 +1173,7 @@ export PAPERCUT_PUBLISH_CMD="$stub_publish"
 export PAPERCUT_TEST_LEDGER="$d/ledger.txt"
 : >"$PAPERCUT_TEST_LEDGER"
 rec pc_review_1 "2026-12-03T00:00:00Z" >"$PAPERCUT_SPOOL"
-review_out="$(PATH="$work_shim:$PATH" bash "$flush" --review)"
+review_out="$(PAPERCUT_DETECT_CMD='echo strict' bash "$flush" --review)"
 rc=$?
 assert_eq "--review: exits 0" "0" "$rc"
 assert_true "--review: prints the pending record" "$(printf '%s' "$review_out" | grep -q pc_review_1 && echo 1 || echo 0)"
@@ -1209,7 +1196,7 @@ assert_eq "--review empty: exits 0" "0" "$rc"
 assert_true "--review empty: reports nothing pending" "$(printf '%s' "$review_empty_out" | grep -qi 'nothing pending' && echo 1 || echo 0)"
 
 # =============================================================================
-# 26. betterment profile + normal run (no --force), a STRAY spool.batch.* with
+# 26. strict profile + normal run (no --force), a STRAY spool.batch.* with
 #     no live spool content -> still HOLDS (the hold gate must block stray-
 #     batch publishing too, not just a fresh spool). --force then publishes it.
 # =============================================================================
@@ -1220,20 +1207,57 @@ export PAPERCUT_TEST_LEDGER="$d/ledger.txt"
 : >"$PAPERCUT_TEST_LEDGER"
 mkdir -p "$PAPERCUT_BATCH_DIR"
 rec pc_stray_hold "2026-12-04T00:00:00Z" >"$PAPERCUT_BATCH_DIR/spool.batch.20261201T000000Z.1.deadbeef.jsonl"
-work_shim2="$(hostname_shim_dir "NYC-BETTERMENT01487")"
-PATH="$work_shim2:$PATH" bash "$flush"
+PAPERCUT_DETECT_CMD='echo strict' bash "$flush"
 rc=$?
-assert_eq "betterment no-force, stray batch only: holds, exits 0" "0" "$rc"
+assert_eq "strict no-force, stray batch only: holds, exits 0" "0" "$rc"
 shopt -s nullglob; leftover=("$PAPERCUT_BATCH_DIR"/spool.batch.*); shopt -u nullglob
-assert_eq "betterment no-force, stray batch: batch untouched" "1" "${#leftover[@]}"
-assert_true "betterment no-force, stray batch: nothing published" "$([ ! -s "$PAPERCUT_TEST_LEDGER" ] && echo 1 || echo 0)"
-assert_true "betterment no-force, stray batch: hold line logged" "$(grep -q 'hold reason=work-host-review' "$PAPERCUT_LOG" && echo 1 || echo 0)"
-PATH="$work_shim2:$PATH" bash "$flush" --force
+assert_eq "strict no-force, stray batch: batch untouched" "1" "${#leftover[@]}"
+assert_true "strict no-force, stray batch: nothing published" "$([ ! -s "$PAPERCUT_TEST_LEDGER" ] && echo 1 || echo 0)"
+assert_true "strict no-force, stray batch: hold line logged" "$(grep -q 'hold reason=strict-profile-review' "$PAPERCUT_LOG" && echo 1 || echo 0)"
+PAPERCUT_DETECT_CMD='echo strict' bash "$flush" --force
 rc=$?
-assert_eq "betterment --force, stray batch: publishes, exits 0" "0" "$rc"
+assert_eq "strict --force, stray batch: publishes, exits 0" "0" "$rc"
 shopt -s nullglob; leftover=("$PAPERCUT_BATCH_DIR"/spool.batch.*); shopt -u nullglob
-assert_eq "betterment --force, stray batch: batch consumed" "0" "${#leftover[@]}"
-assert_true "betterment --force, stray batch: record published" "$(grep -qx pc_stray_hold "$PAPERCUT_TEST_LEDGER" && echo 1 || echo 0)"
+assert_eq "strict --force, stray batch: batch consumed" "0" "${#leftover[@]}"
+assert_true "strict --force, stray batch: record published" "$(grep -qx pc_stray_hold "$PAPERCUT_TEST_LEDGER" && echo 1 || echo 0)"
+
+# =============================================================================
+# 26b. the REAL resolver, end to end, with no $PAPERCUT_DETECT_CMD seam: plant
+#      the marker under a throwaway HOME and the flusher must hold. Every other
+#      strict-profile section above drives the seam, so without this one the
+#      wiring from the flusher to papercut_append.detect_machine() could break
+#      and the suite would stay green.
+# =============================================================================
+d="$(new_env_dir)"
+eval "$(env_vars_for "$d")"
+export PAPERCUT_PUBLISH_CMD="$stub_publish"
+export PAPERCUT_TEST_LEDGER="$d/ledger.txt"
+: >"$PAPERCUT_TEST_LEDGER"
+rec pc_real_marker "2026-12-05T00:00:00Z" >"$PAPERCUT_SPOOL"
+marker_home="$d/marker-home"
+mkdir -p "$marker_home/.config/papercuts"
+: >"$marker_home/.config/papercuts/strict"
+env -u PAPERCUT_DETECT_CMD HOME="$marker_home" bash "$flush"
+rc=$?
+assert_eq "real resolver + marker: holds, exits 0" "0" "$rc"
+assert_true "real resolver + marker: spool untouched" "$([ -s "$PAPERCUT_SPOOL" ] && echo 1 || echo 0)"
+assert_true "real resolver + marker: nothing published" "$([ ! -s "$PAPERCUT_TEST_LEDGER" ] && echo 1 || echo 0)"
+assert_true "real resolver + marker: hold line logged" "$(grep -q 'hold reason=strict-profile-review' "$PAPERCUT_LOG" && echo 1 || echo 0)"
+
+# The same real resolver with NO marker and no matching pattern publishes, so
+# the hold above is the marker's doing rather than a detection failure landing
+# on the fail-closed default.
+d="$(new_env_dir)"
+eval "$(env_vars_for "$d")"
+export PAPERCUT_TEST_LEDGER="$d/ledger.txt"
+: >"$PAPERCUT_TEST_LEDGER"
+rec pc_real_no_marker "2026-12-06T00:00:00Z" >"$PAPERCUT_SPOOL"
+no_marker_home="$d/plain-home"
+mkdir -p "$no_marker_home"
+env -u PAPERCUT_DETECT_CMD HOME="$no_marker_home" bash "$flush"
+rc=$?
+assert_eq "real resolver, no marker: publishes, exits 0" "0" "$rc"
+assert_true "real resolver, no marker: record published" "$(grep -qx pc_real_no_marker "$PAPERCUT_TEST_LEDGER" && echo 1 || echo 0)"
 
 # =============================================================================
 # 27. --review is a true no-op on the FULL artifact set: a live spool, a stray
@@ -1252,7 +1276,7 @@ rec pc_review_stray "2026-12-05T00:00:01Z" >"$PAPERCUT_BATCH_DIR/spool.batch.202
 spool_before="$(cat "$PAPERCUT_SPOOL")"
 stray_before="$(cat "$PAPERCUT_BATCH_DIR/spool.batch.20261202T000000Z.2.cafef00d.jsonl")"
 ok_mtime_before=$(stat -c %Y "$PAPERCUT_FLUSH_OK" 2>/dev/null || stat -f %m "$PAPERCUT_FLUSH_OK" 2>/dev/null)
-review_full_out="$(PATH="$work_shim2:$PATH" bash "$flush" --review)"
+review_full_out="$(PAPERCUT_DETECT_CMD='echo strict' bash "$flush" --review)"
 rc=$?
 assert_eq "--review full set: exits 0" "0" "$rc"
 assert_true "--review full set: prints the live-spool record" "$(printf '%s' "$review_full_out" | grep -q pc_review_live && echo 1 || echo 0)"

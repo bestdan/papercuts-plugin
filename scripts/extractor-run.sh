@@ -128,7 +128,7 @@ fi
 # Detection uses the SAME logic papercut_append.py's gate uses, so the two
 # never disagree about what machine this is. FAIL CLOSED: the work rules are
 # prepended UNLESS detection positively reports "default" -- an empty result,
-# a crashed python, or "betterment" all get the (safer) work rules, so a
+# a crashed python, or "strict" all get the (safer) work rules, so a
 # detection error can never strip the privacy preamble on a work host.
 # PAPERCUT_DETECT_CMD overrides the detection (tests use it to force a
 # failure without breaking the python watchdog below).

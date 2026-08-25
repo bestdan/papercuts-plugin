@@ -20,11 +20,30 @@ next_dir() {
   printf '%s' "$d"
 }
 
+# Suite-wide config: one strict_hosts pattern, so a monkeypatched "WORK-*"
+# hostname resolves to the strict profile and everything else to default. The
+# prelude pinned HOME and unset XDG_CONFIG_HOME, so without this the resolver
+# would find no config at all and no hostname could ever reach strict.
+strict_hosts_config="$workdir/config-strict-hosts.toml"
+cat >"$strict_hosts_config" <<'EOF'
+[profile]
+strict_hosts = ["WORK-*"]
+EOF
+export PAPERCUT_CONFIG="$strict_hosts_config"
+
 # Runs the gate as a subprocess with socket.gethostname monkeypatched to $host,
-# so the suite can drive EITHER profile on any machine (including a real
-# NYC-BETTERMENT* work laptop) without a production-settable env override.
-# Production invokes `python3 papercut_append.py` directly, which has no patch,
-# so the machine profile can never be flipped by a caller's environment.
+# so the suite can drive EITHER profile on any machine (including a real work
+# laptop whose hostname matches the operator's own strict_hosts) without a
+# production-settable env override. Production invokes `python3
+# papercut_append.py` directly, which has no patch, so the machine profile can
+# never be flipped by a caller's environment.
+#
+# A monkeypatched hostname only reaches the strict profile because of
+# $strict_hosts_config below: detect_machine() matches the hostname against
+# profile.strict_hosts from the config file, so the suite pins PAPERCUT_CONFIG
+# at a temp config declaring the pattern "WORK-*". The OTHER strict trigger --
+# the marker file -- is exercised separately (sections 28-31), under a temp
+# HOME, since no config can name its path.
 run_as_host() {
   local host="$1"
   shift
@@ -38,8 +57,8 @@ runpy.run_path(gate, run_name="__main__")
 }
 
 # Runs the gate with a fresh spool/lock dir (so tests never touch real
-# ~/.claude or ~/.config) and the default (non-betterment) profile unless the
-# caller sets PAPERCUT_FAKE_HOST to simulate a different hostname.
+# ~/.claude or ~/.config) and the default profile unless the caller sets
+# PAPERCUT_FAKE_HOST to a hostname matching $strict_hosts_config's pattern.
 run_gate() {
   local dir="$1"
   shift
@@ -121,7 +140,7 @@ assert_eq "round-trip appends exactly one line" "1" "$lines"
 
 # --- 2. controlled fields constructed: caller-supplied id/ts/machine ignored ---
 d="$(next_dir)"
-out="$(run_gate "$d" '{"category":"harness_config","severity":"low","title":"t2","description":"d2","id":"pc_evil","ts":"1999-01-01T00:00:00Z","machine":"betterment"}' \
+out="$(run_gate "$d" '{"category":"harness_config","severity":"low","title":"t2","description":"d2","id":"pc_evil","ts":"1999-01-01T00:00:00Z","machine":"strict"}' \
   --source manual --producer test/1 --repo dotfiles)"
 if printf '%s' "$out" | python3 -c '
 import json, sys
@@ -187,32 +206,32 @@ print("REJECTED" if not ok else "ACCEPTED", reason)
 ')"
 assert_true "additionalProperties:false rejects an unknown key" "$(printf '%s' "$out" | grep -q '^REJECTED' && echo 1 || echo 0)"
 
-# --- 4/5. betterment profile drops session_id and repo (not a rejection) ---
-# betterment profile fails closed without a valid denylist (see section 13
+# --- 4/5. strict profile drops session_id and repo (not a rejection) ---
+# strict profile fails closed without a valid denylist (see section 13
 # below), so this pre-existing test needs one even though it isn't
 # exercising denylist behavior itself.
-betterment_smoke_denylist="$workdir/denylist_betterment_smoke.txt"
-printf 'unrelated-literal\n' >"$betterment_smoke_denylist"
-chmod 0600 "$betterment_smoke_denylist"
+strict_smoke_denylist="$workdir/denylist_strict_smoke.txt"
+printf 'unrelated-literal\n' >"$strict_smoke_denylist"
+chmod 0600 "$strict_smoke_denylist"
 d="$(next_dir)"
-out="$(PAPERCUT_DENYLIST="$betterment_smoke_denylist" PAPERCUT_FAKE_HOST=NYC-BETTERMENT01487 run_gate "$d" '{"category":"harness_config","severity":"low","title":"t6","description":"d6","repo":"secret-repo","session_id":"stdin-sess"}' \
+out="$(PAPERCUT_DENYLIST="$strict_smoke_denylist" PAPERCUT_FAKE_HOST=WORK-LAPTOP-01 run_gate "$d" '{"category":"harness_config","severity":"low","title":"t6","description":"d6","repo":"secret-repo","session_id":"stdin-sess"}' \
   --source manual --producer test/1 --repo dotfiles --session-id sess-123)"
 rc=$?
-assert_eq "betterment profile still exits 0" "0" "$rc"
+assert_eq "strict profile still exits 0" "0" "$rc"
 if printf '%s' "$out" | python3 -c '
 import json, sys
 rec = json.loads(sys.stdin.read())
-assert rec["machine"] == "betterment"
+assert rec["machine"] == "strict"
 assert "repo" not in rec
 assert "session_id" not in rec
-' 2>"$workdir"/betterment_err; then
-  printf 'ok   (betterment drops repo and session_id from both flags and stdin)\n'
+' 2>"$workdir"/strict_err; then
+  printf 'ok   (strict drops repo and session_id from both flags and stdin)\n'
 else
-  printf 'FAIL (betterment drop test: %s | out=%q)\n' "$(cat "$workdir"/betterment_err)" "$out"
+  printf 'FAIL (strict drop test: %s | out=%q)\n' "$(cat "$workdir"/strict_err)" "$out"
   fail=1
 fi
 lines="$(wc -l < "$d/spool.jsonl" | tr -d ' ')"
-assert_eq "betterment record still appended (not rejected)" "1" "$lines"
+assert_eq "strict record still appended (not rejected)" "1" "$lines"
 
 # --- 6. array input: 2 records in, 2 lines appended, 2 printed ---
 d="$(next_dir)"
@@ -291,7 +310,7 @@ assert_eq "pre-existing permissive spool tightened to 0600" "600" "$existing_per
 # internal repo names, ticket IDs, project codenames, or person names — that
 # residual risk is accepted and documented in papercuts_plan.md's privacy
 # model. The only backstop for those semantic cases is the per-machine
-# denylist (never committed) and, on the work profile, its fail-closed gate.
+# denylist (never committed) and, on the strict profile, its fail-closed gate.
 #
 # Every test below routes through PAPERCUT_DENYLIST pointing at a temp file
 # (or a deliberately missing/malformed one) — never the real
@@ -575,7 +594,7 @@ assert_contains "adversarial: IPv6 marker present" "$desc" "[ip]"
 assert_not_contains "adversarial: IPv6 raw value gone" "$desc" "2001:0db8::1"
 # NOTE: these are the SEMANTIC cases regex cannot catch on the default
 # profile — the repo name, ticket id, and person name all survive here on
-# purpose; they are only caught on the work profile via the denylist match
+# purpose; they are only caught on the strict profile via the denylist match
 # in section 13 below.
 assert_contains "adversarial: repo name NOT caught by regex (semantic, expected)" "$desc" "starship-secrets"
 assert_contains "adversarial: ticket id NOT caught by regex (semantic, expected)" "$desc" "ENG-1234"
@@ -600,17 +619,17 @@ assert_not_contains "default profile denylist: literal gone (case-insensitive)" 
 lines="$(wc -l < "$d/spool.jsonl" | tr -d ' ')"
 assert_eq "default profile denylist match: record still appended" "1" "$lines"
 
-# --- 13. work profile fails closed, TWICE ---
+# --- 13. strict profile fails closed, TWICE ---
 
 # (i) missing denylist file entirely -> reject
 d="$(next_dir)"
-PAPERCUT_DENYLIST="$workdir/does-not-exist.txt" PAPERCUT_FAKE_HOST=NYC-BETTERMENT01487 \
+PAPERCUT_DENYLIST="$workdir/does-not-exist.txt" PAPERCUT_FAKE_HOST=WORK-LAPTOP-01 \
   run_gate "$d" '{"category":"harness_config","severity":"low","title":"t","description":"benign text"}' \
   --source manual --producer test/1 >"$d"/wf_missing_out 2>"$d"/wf_missing_err
 rc=$?
-assert_eq "work profile: missing denylist exits 1" "1" "$rc"
-assert_contains "work profile: missing denylist error message" "$(cat "$d"/wf_missing_err)" "scrub rejected"
-assert_true "work profile: missing denylist appends nothing" "$([ ! -s "$d/spool.jsonl" ] && echo 1 || echo 0)"
+assert_eq "strict profile: missing denylist exits 1" "1" "$rc"
+assert_contains "strict profile: missing denylist error message" "$(cat "$d"/wf_missing_err)" "scrub rejected"
+assert_true "strict profile: missing denylist appends nothing" "$([ ! -s "$d/spool.jsonl" ] && echo 1 || echo 0)"
 
 # (ii) present but empty (all comments/blank) -> reject
 empty_denylist="$workdir/denylist_empty.txt"
@@ -620,24 +639,24 @@ cat >"$empty_denylist" <<'EOF'
 EOF
 chmod 0600 "$empty_denylist"
 d="$(next_dir)"
-PAPERCUT_DENYLIST="$empty_denylist" PAPERCUT_FAKE_HOST=NYC-BETTERMENT01487 \
+PAPERCUT_DENYLIST="$empty_denylist" PAPERCUT_FAKE_HOST=WORK-LAPTOP-01 \
   run_gate "$d" '{"category":"harness_config","severity":"low","title":"t","description":"benign text"}' \
   --source manual --producer test/1 >"$d"/wf_empty_out 2>"$d"/wf_empty_err
 rc=$?
-assert_eq "work profile: empty/all-comment denylist exits 1" "1" "$rc"
-assert_true "work profile: empty denylist appends nothing" "$([ ! -s "$d/spool.jsonl" ] && echo 1 || echo 0)"
+assert_eq "strict profile: empty/all-comment denylist exits 1" "1" "$rc"
+assert_true "strict profile: empty denylist appends nothing" "$([ ! -s "$d/spool.jsonl" ] && echo 1 || echo 0)"
 
 # (iii) present, non-empty, but world-readable -> reject
 world_readable_denylist="$workdir/denylist_world_readable.txt"
 printf 'topsecret\n' >"$world_readable_denylist"
 chmod 0644 "$world_readable_denylist"
 d="$(next_dir)"
-PAPERCUT_DENYLIST="$world_readable_denylist" PAPERCUT_FAKE_HOST=NYC-BETTERMENT01487 \
+PAPERCUT_DENYLIST="$world_readable_denylist" PAPERCUT_FAKE_HOST=WORK-LAPTOP-01 \
   run_gate "$d" '{"category":"harness_config","severity":"low","title":"t","description":"benign text"}' \
   --source manual --producer test/1 >"$d"/wf_worldread_out 2>"$d"/wf_worldread_err
 rc=$?
-assert_eq "work profile: world-readable denylist exits 1" "1" "$rc"
-assert_true "work profile: world-readable denylist appends nothing" "$([ ! -s "$d/spool.jsonl" ] && echo 1 || echo 0)"
+assert_eq "strict profile: world-readable denylist exits 1" "1" "$rc"
+assert_true "strict profile: world-readable denylist appends nothing" "$([ ! -s "$d/spool.jsonl" ] && echo 1 || echo 0)"
 
 # (iv) valid denylist, but the record's PRE-redaction text matches a
 # literal -> the WHOLE record is rejected, not redacted
@@ -645,24 +664,24 @@ good_denylist="$workdir/denylist_good.txt"
 printf 'topsecret\n' >"$good_denylist"
 chmod 0600 "$good_denylist"
 d="$(next_dir)"
-PAPERCUT_DENYLIST="$good_denylist" PAPERCUT_FAKE_HOST=NYC-BETTERMENT01487 \
+PAPERCUT_DENYLIST="$good_denylist" PAPERCUT_FAKE_HOST=WORK-LAPTOP-01 \
   run_gate "$d" '{"category":"harness_config","severity":"low","title":"t","description":"this is topsecret stuff"}' \
   --source manual --producer test/1 >"$d"/wf_match_out 2>"$d"/wf_match_err
 rc=$?
-assert_eq "work profile: pre-redaction denylist match exits 1" "1" "$rc"
-assert_contains "work profile: pre-redaction match error message" "$(cat "$d"/wf_match_err)" "scrub rejected"
-assert_true "work profile: pre-redaction denylist match appends nothing" "$([ ! -s "$d/spool.jsonl" ] && echo 1 || echo 0)"
+assert_eq "strict profile: pre-redaction denylist match exits 1" "1" "$rc"
+assert_contains "strict profile: pre-redaction match error message" "$(cat "$d"/wf_match_err)" "scrub rejected"
+assert_true "strict profile: pre-redaction denylist match appends nothing" "$([ ! -s "$d/spool.jsonl" ] && echo 1 || echo 0)"
 
-# sanity: a valid, non-matching denylist on the work profile still lets a
+# sanity: a valid, non-matching denylist on the strict profile still lets a
 # clean record through (proves the fail-closed checks aren't over-broad)
 d="$(next_dir)"
-out="$(PAPERCUT_DENYLIST="$good_denylist" PAPERCUT_FAKE_HOST=NYC-BETTERMENT01487 run_gate "$d" \
+out="$(PAPERCUT_DENYLIST="$good_denylist" PAPERCUT_FAKE_HOST=WORK-LAPTOP-01 run_gate "$d" \
   '{"category":"harness_config","severity":"low","title":"t","description":"nothing sensitive here"}' \
   --source manual --producer test/1)"
 rc=$?
-assert_eq "work profile: valid denylist + clean record still exits 0" "0" "$rc"
+assert_eq "strict profile: valid denylist + clean record still exits 0" "0" "$rc"
 lines="$(wc -l < "$d/spool.jsonl" | tr -d ' ')"
-assert_eq "work profile: valid denylist + clean record appended" "1" "$lines"
+assert_eq "strict profile: valid denylist + clean record appended" "1" "$lines"
 
 # --- 14. post-scrub revalidation/truncation: redaction markers can grow a
 # field (a short match like "a@b.co" (6 chars) becomes "[email]" (7 chars));
@@ -683,23 +702,23 @@ desc_len="$(printf '%s' "$desc" | wc -c | tr -d ' ')"
 assert_true "truncation: description length <= 1000 after scrub" "$([ "$desc_len" -le 1000 ] && echo 1 || echo 0)"
 lines="$(wc -l < "$d/spool.jsonl" | tr -d ' ')"
 assert_eq "truncation: record still appended (not rejected)" "1" "$lines"
-# --- 15. the betterment guard is NOT downgradeable by the environment: with a
-# work hostname in effect, legacy override env vars must be ignored so the
-# profile stays "betterment" and repo/session_id are still dropped. (A valid
+# --- 15. the strict guard is NOT downgradeable by the environment: with a
+# strict hostname in effect, legacy override env vars must be ignored so the
+# profile stays "strict" and repo/session_id are still dropped. (A valid
 # denylist is supplied because the implemented scrub stage fails closed on the
-# work profile without one; this test is about the guard, not the denylist.) ---
+# strict profile without one; this test is about the guard, not the denylist.) ---
 d="$(next_dir)"
-out="$(PAPERCUT_DENYLIST="$betterment_smoke_denylist" PAPERCUT_FAKE_HOST=NYC-BETTERMENT01487 PAPERCUT_HOSTNAME=some-laptop PAPERCUT_TEST_MODE=1 \
+out="$(PAPERCUT_DENYLIST="$strict_smoke_denylist" PAPERCUT_FAKE_HOST=WORK-LAPTOP-01 PAPERCUT_HOSTNAME=some-laptop PAPERCUT_TEST_MODE=1 \
   run_gate "$d" '{"category":"harness_config","severity":"low","title":"t10","description":"d10"}' \
   --source manual --producer test/1 --repo dotfiles --session-id sess-123)"
 if printf '%s' "$out" | python3 -c '
 import json, sys
 rec = json.loads(sys.stdin.read())
-assert rec["machine"] == "betterment"
+assert rec["machine"] == "strict"
 assert "repo" not in rec
 assert "session_id" not in rec
 ' 2>"$workdir/downgrade_err"; then
-  printf 'ok   (work host stays betterment; PAPERCUT_HOSTNAME/PAPERCUT_TEST_MODE env ignored)\n'
+  printf 'ok   (strict host stays strict; PAPERCUT_HOSTNAME/PAPERCUT_TEST_MODE env ignored)\n'
 else
   printf 'FAIL (guard downgradeable by env: %s | out=%q)\n' "$(cat "$workdir/downgrade_err")" "$out"
   fail=1
@@ -844,35 +863,35 @@ rc=$?
 assert_eq "bad fix_url exits 1" "1" "$rc"
 assert_true "bad fix_url appends nothing" "$([ ! -s "$d/spool.jsonl" ] && echo 1 || echo 0)"
 
-# --- betterment: denylist literal in fix_url rejects the record ---
+# --- strict: denylist literal in fix_url rejects the record ---
 d="$(next_dir)"
-PAPERCUT_DENYLIST="$good_denylist" PAPERCUT_FAKE_HOST=NYC-BETTERMENT01487 \
+PAPERCUT_DENYLIST="$good_denylist" PAPERCUT_FAKE_HOST=WORK-LAPTOP-01 \
   run_gate "$d" "{\"resolves\":\"$resolves_id\",\"status\":\"fixed\",\"fix_url\":\"https://example.com/topsecret\"}" \
-  --source manual --producer test/1 --type resolution >/dev/null 2>"$workdir"/resolution_bt_deny_err
+  --source manual --producer test/1 --type resolution >/dev/null 2>"$workdir"/resolution_strict_deny_err
 rc=$?
-assert_eq "betterment: denylist literal in fix_url exits 1" "1" "$rc"
-assert_contains "betterment: denylist literal in fix_url error message" "$(cat "$workdir"/resolution_bt_deny_err)" "scrub rejected"
-assert_true "betterment: denylist literal in fix_url appends nothing" "$([ ! -s "$d/spool.jsonl" ] && echo 1 || echo 0)"
+assert_eq "strict: denylist literal in fix_url exits 1" "1" "$rc"
+assert_contains "strict: denylist literal in fix_url error message" "$(cat "$workdir"/resolution_strict_deny_err)" "scrub rejected"
+assert_true "strict: denylist literal in fix_url appends nothing" "$([ ! -s "$d/spool.jsonl" ] && echo 1 || echo 0)"
 
-# --- betterment: strips session_id/repo from a resolution too (resolution
+# --- strict: strips session_id/repo from a resolution too (resolution
 # has neither field to begin with, but confirm the machine profile itself
-# still resolves to betterment and the record appends) ---
+# still resolves to strict and the record appends) ---
 d="$(next_dir)"
-out="$(PAPERCUT_DENYLIST="$betterment_smoke_denylist" PAPERCUT_FAKE_HOST=NYC-BETTERMENT01487 \
+out="$(PAPERCUT_DENYLIST="$strict_smoke_denylist" PAPERCUT_FAKE_HOST=WORK-LAPTOP-01 \
   run_gate "$d" "{\"resolves\":\"$resolves_id\",\"status\":\"mitigated\"}" \
   --source manual --producer test/1 --type resolution --repo secret-repo --session-id sess-1)"
 rc=$?
-assert_eq "betterment resolution exits 0" "0" "$rc"
+assert_eq "strict resolution exits 0" "0" "$rc"
 if printf '%s' "$out" | python3 -c '
 import json, sys
 rec = json.loads(sys.stdin.read())
-assert rec["machine"] == "betterment"
+assert rec["machine"] == "strict"
 assert "repo" not in rec
 assert "session_id" not in rec
-' 2>"$workdir"/resolution_bt_strip_err; then
-  printf 'ok   (betterment resolution: repo/session_id stripped)\n'
+' 2>"$workdir"/resolution_strict_strip_err; then
+  printf 'ok   (strict resolution: repo/session_id stripped)\n'
 else
-  printf 'FAIL (betterment resolution strip: %s | out=%q)\n' "$(cat "$workdir"/resolution_bt_strip_err)" "$out"
+  printf 'FAIL (strict resolution strip: %s | out=%q)\n' "$(cat "$workdir"/resolution_strict_strip_err)" "$out"
   fail=1
 fi
 
@@ -991,5 +1010,141 @@ rc=$?
 assert_eq "sidecar write failure: gate still exits 0" "0" "$rc"
 lines="$(wc -l < "$d/spool.jsonl" | tr -d ' ')"
 assert_eq "sidecar write failure: record still appended" "1" "$lines"
+
+# --- 17-20. detect_machine(): the profile resolver itself. Strictness is a
+# MONOTONE UNION of a configured hostname pattern and a marker file whose path
+# no config can name. Each case gets its own throwaway HOME, so the marker is
+# planted (or absent) in isolation from the developer's real ~/.config. ---
+detect_with() {
+  # detect_with <home> <config-path-or-empty> <hostname> -> prints the profile.
+  # An empty config path means "no config file at all": config_path() then
+  # falls back to $HOME/.config/papercuts/config.toml under the throwaway HOME,
+  # which does not exist.
+  local home="$1" cfg="$2" host="$3"
+  HOME="$home" PAPERCUT_CONFIG="$cfg" python3 -c '
+import socket, sys
+sys.path.insert(0, sys.argv[1])
+socket.gethostname = lambda: sys.argv[2]
+import papercut_append
+print(papercut_append.detect_machine())
+' "$(cd "$(dirname "$gate")" && pwd)" "$host"
+}
+
+plant_marker() {
+  # plant_marker <home> -> creates <home>/.config/papercuts/strict
+  mkdir -p "$1/.config/papercuts"
+  : >"$1/.config/papercuts/strict"
+}
+
+# 17. a hostname matching a strict_hosts pattern resolves strict — with no
+# marker anywhere, so the pattern is provably what did it. Both the exact
+# uppercase form and a lowercased FQDN form must match (the pre-config
+# behavior this replaced was case-insensitive and domain-stripped).
+d="$(next_dir)"
+assert_eq "strict_hosts pattern match resolves strict" \
+  "strict" "$(detect_with "$d" "$strict_hosts_config" WORK-LAPTOP-01)"
+assert_eq "strict_hosts pattern match is case-insensitive and domain-stripped" \
+  "strict" "$(detect_with "$d" "$strict_hosts_config" work-laptop-01.local)"
+assert_eq "non-matching hostname with a config present resolves default" \
+  "default" "$(detect_with "$d" "$strict_hosts_config" some-laptop)"
+
+# 18. no pattern match, but the marker is present -> strict. The monotone rule:
+# the marker alone is enough, and it is the trigger an operator can use without
+# the plugin knowing anything about their employer.
+d="$(next_dir)"
+plant_marker "$d"
+assert_eq "marker present with no matching pattern resolves strict" \
+  "strict" "$(detect_with "$d" "$strict_hosts_config" some-laptop)"
+assert_eq "marker present with no config file at all resolves strict" \
+  "strict" "$(detect_with "$d" "" some-laptop)"
+
+# 19. empty strict_hosts and no marker -> default.
+d="$(next_dir)"
+empty_hosts_config="$d/config-empty-hosts.toml"
+cat >"$empty_hosts_config" <<'EOF'
+[profile]
+strict_hosts = []
+EOF
+assert_eq "empty strict_hosts + no marker resolves default" \
+  "default" "$(detect_with "$d" "$empty_hosts_config" WORK-LAPTOP-01)"
+assert_eq "no config file + no marker resolves default" \
+  "default" "$(detect_with "$d" "" WORK-LAPTOP-01)"
+
+# 20. NO config key can relocate the marker. A config that spells keys which
+# look like they name the marker path is ignored (they are unknown keys), so a
+# machine holding ~/.config/papercuts/strict still resolves strict regardless
+# of config contents. This is the monotone-strictness promise: config can only
+# ADD strictness, never hide the operator's own declaration.
+d="$(next_dir)"
+plant_marker "$d"
+relocate_config="$d/config-relocate.toml"
+cat >"$relocate_config" <<EOF
+[profile]
+strict_hosts = []
+marker = "$d/nonexistent-marker"
+strict_marker = "/nonexistent"
+marker_path = "/nonexistent"
+EOF
+assert_eq "no config key relocates the marker: still strict" \
+  "strict" "$(detect_with "$d" "$relocate_config" some-laptop)"
+
+# A BROKEN config must not hide the marker either — detect_machine fails
+# closed: unreadable patterns become unmatchable, the marker is still checked.
+broken_config="$d/config-broken.toml"
+printf '[profile\nstrict_hosts = ["WORK-*"]\n' >"$broken_config"
+assert_eq "broken config still sees the marker (fails closed)" \
+  "strict" "$(detect_with "$d" "$broken_config" some-laptop)"
+
+# --- 21. the SHIPPED schema carries no employer-named value and no `reporter`
+# property. The employer name is this migration's residue: the gate can never
+# produce it again, so shipping it would be dead vocabulary for every install
+# but one and would leak the provenance the rename exists to hide. `reporter`
+# was refused outright — extension happens in a ledger repo's own schema copy
+# or via the compatibility contract, never speculatively here. ---
+schema_file="$(cd "$(dirname "$gate")/../schema" && pwd)/v1.json"
+# The name is assembled from two fragments on purpose: this repo's own
+# no-employer-name check is `rg -i <name>` over every file, and a suite that
+# spelled the name in full to assert its absence would be the one hit.
+employer_residue="better""ment"
+assert_true "shipped schema has no employer-named value" \
+  "$(grep -qi -- "$employer_residue" "$schema_file" && echo 0 || echo 1)"
+assert_true "shipped schema has no reporter property" \
+  "$(grep -q '"reporter"' "$schema_file" && echo 0 || echo 1)"
+assert_true "shipped schema machine enum is exactly default/strict" \
+  "$(grep -qF '"enum": ["default", "strict"]' "$schema_file" && echo 1 || echo 0)"
+
+# --- 22. a `strict` record carrying repo or session_id fails validation. The
+# gate strips both before it ever validates (section 4/5), so this exercises
+# the schema conditional directly — it is the backstop if a future caller path
+# ever constructs one. ---
+strict_conditional_out="$(python3 -c '
+import sys
+sys.path.insert(0, sys.argv[1])
+import papercut_append as pa
+schema = pa.load_schema()
+base = {
+    "id": "pc_00000000-0000-4000-8000-000000000000",
+    "v": 1,
+    "type": "papercut",
+    "producer": "test/1",
+    "ts": "2026-01-01T00:00:00Z",
+    "machine": "strict",
+    "source": "manual",
+    "category": "harness_config",
+    "severity": "low",
+    "title": "t",
+    "description": "d",
+}
+for extra in ("repo", "session_id"):
+    rec = dict(base)
+    rec[extra] = "leaky"
+    ok, _ = pa.validate_record(rec, schema)
+    print(extra, "REJECTED" if not ok else "ACCEPTED")
+ok, reason = pa.validate_record(base, schema)
+print("bare", "ACCEPTED" if ok else "REJECTED " + str(reason))
+' "$(cd "$(dirname "$gate")" && pwd)")"
+assert_contains "strict record carrying repo fails validation" "$strict_conditional_out" "repo REJECTED"
+assert_contains "strict record carrying session_id fails validation" "$strict_conditional_out" "session_id REJECTED"
+assert_contains "strict record with neither still validates" "$strict_conditional_out" "bare ACCEPTED"
 
 exit $fail
