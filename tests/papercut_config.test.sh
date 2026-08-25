@@ -170,6 +170,24 @@ assert_eq "repo absent: ledger status is missing, not ok" \
 assert_eq "repo absent: repo key present but empty" \
   "" "$(eval_var "$out" PAPERCUT_CONFIG_LEDGER_REPO)"
 
+# --- 7b. remote_url: emitted verbatim, and it alone resolves the ledger
+# identity (the flusher's publish path holds on status=missing, and the
+# integration fixtures configure ONLY remote_url) ---
+d="$(next_dir)"
+cat >"$d/config.toml" <<'EOF'
+[ledger]
+remote_url = "file:///srv/bare.git"
+EOF
+out="$(PAPERCUT_CONFIG="$d/config.toml" python3 "$resolver")"
+rc=$?
+assert_eq "remote_url only: exit 0" "0" "$rc"
+assert_eq "remote_url only: value emitted" \
+  "file:///srv/bare.git" "$(eval_var "$out" PAPERCUT_CONFIG_LEDGER_REMOTE_URL)"
+assert_eq "remote_url only: ledger identity resolves without repo" \
+  "ok" "$(eval_var "$out" PAPERCUT_CONFIG_LEDGER)"
+assert_eq "remote_url only: repo key present but empty" \
+  "" "$(eval_var "$out" PAPERCUT_CONFIG_LEDGER_REPO)"
+
 # --- 8. no config file anywhere: exit 0 with usable defaults ---
 out="$(python3 "$resolver")"
 rc=$?

@@ -12,16 +12,24 @@ Config file location, most specific first:
   3. ~/.config/papercuts/config.toml
 
 Keys read (all under [ledger]):
-  repo -- "owner/name". No default: required for publishing, not for this
-          resolver to run.
-  host -- default "github.com".
-  dir  -- local clone path, default "~/src/papercuts" (the same default
-          PAPERCUT_LEDGER_DIR already has). Tilde is expanded.
+  repo       -- "owner/name". No default: required for publishing, not for
+                this resolver to run.
+  host       -- default "github.com".
+  dir        -- local clone path, default "~/src/papercuts" (the same
+                default PAPERCUT_LEDGER_DIR already has). Tilde is expanded.
+  remote_url -- full remote URL, any scheme; no default. An exact-match
+                trust anchor the flusher's origin allowlist accepts in
+                addition to the host/repo-derived forms. Because it lives
+                in the config file (the operator's PR-reviewable trust
+                root), it is trusted; the PAPERCUT_LEDGER_REMOTE env var
+                stays a value override that is always judged against the
+                allowlist.
 
 The resolver ALWAYS resolves: it exits 0 on a missing or partially-filled
 config, emitting every key (defaults where they exist, empty where they
 don't) plus one status line per key group -- PAPERCUT_CONFIG_LEDGER=ok when
-ledger.repo resolved, =missing when it did not. Consumers decide whether a
+the ledger identity resolved (repo or remote_url set), =missing when it
+did not. Consumers decide whether a
 missing group is fatal; only the flusher's publish path treats it that way.
 The one hard error (non-zero exit, nothing on stdout) is a config file that
 EXISTS but cannot be parsed or holds wrongly-typed values -- that is a
@@ -103,12 +111,14 @@ def resolve(environ=os.environ):
     repo = _string_key(ledger, "repo", path)
     host = _string_key(ledger, "host", path) or DEFAULT_HOST
     ledger_dir = os.path.expanduser(_string_key(ledger, "dir", path) or DEFAULT_DIR)
+    remote_url = _string_key(ledger, "remote_url", path)
 
     return [
         ("PAPERCUT_CONFIG_LEDGER_REPO", repo or ""),
         ("PAPERCUT_CONFIG_LEDGER_HOST", host),
         ("PAPERCUT_CONFIG_LEDGER_DIR", ledger_dir),
-        ("PAPERCUT_CONFIG_LEDGER", "ok" if repo else "missing"),
+        ("PAPERCUT_CONFIG_LEDGER_REMOTE_URL", remote_url or ""),
+        ("PAPERCUT_CONFIG_LEDGER", "ok" if (repo or remote_url) else "missing"),
     ]
 
 
