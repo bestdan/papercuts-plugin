@@ -94,6 +94,13 @@
 #   claiming/publishing/stamping, so the hold can be audited before --force.
 #   The default profile is unaffected — normal runs still auto-publish there.
 #
+# Fail-silent hook mode:
+#   --hook re-executes this script without the flag and maps EVERY exit code
+#   to 0, logging any non-zero rc first. The plugin's SessionStart entry uses
+#   it so no failure here — a missing config, a publish error, an interpreter
+#   error — can ever disrupt a session. Direct invocation keeps the fail-closed
+#   behaviour described under "Ledger identity" above.
+#
 # Env overrides (all so tests never touch real ~/.claude or ~/.cache):
 #   PAPERCUT_SPOOL           default ~/.claude/papercuts/spool.jsonl
 #   PAPERCUT_LOCK            default <spool dir>/.spool.lock (shared with
@@ -110,10 +117,12 @@ set -uo pipefail
 
 FORCE=0
 REVIEW=0
+HOOK_MODE=0
 for arg in "$@"; do
   case "$arg" in
     --force) FORCE=1 ;;
     --review) REVIEW=1 ;;
+    --hook) HOOK_MODE=1 ;;
   esac
 done
 
@@ -439,6 +448,39 @@ log() {
   printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$msg" >>"$LOG" 2>/dev/null
   chmod 0600 "$LOG" 2>/dev/null
 }
+
+# --- --hook: fail-silent wrapper for the SessionStart hook entry ------------
+# A hook must never disrupt a session, so the plugin's SessionStart entry runs
+# `papercut-flush.sh --hook`. That re-executes this same script WITHOUT the
+# flag and maps every exit code to 0, logging any non-zero rc first.
+#
+# Why a re-exec rather than a trap or a per-branch `exit 0`: the failures that
+# must be swallowed are not confined to one branch. The task-3b ledger-identity
+# gate below exits 1, publish failures exit 1, and a syntax/interpreter error
+# anywhere in the script exits non-zero too. Running the real work as a child
+# process is the only wrapper that covers all of them uniformly.
+#
+# Direct invocation (no --hook) keeps the fail-closed CLI behaviour: a missing
+# or unparseable config exits non-zero so a human sees it.
+if [ "$HOOK_MODE" -eq 1 ]; then
+  hook_args=()
+  for arg in "$@"; do
+    [ "$arg" = "--hook" ] && continue
+    hook_args+=("$arg")
+  done
+  # bash 3.2 (macOS system bash) aborts on "${empty_array[@]}" under `set -u`,
+  # hence the two branches rather than one unconditional expansion.
+  if [ "${#hook_args[@]}" -gt 0 ]; then
+    bash "$0" "${hook_args[@]}"
+  else
+    bash "$0"
+  fi
+  hook_rc=$?
+  if [ "$hook_rc" -ne 0 ]; then
+    log "hook mode: run exited rc=$hook_rc; exiting 0 so the session is not disrupted"
+  fi
+  exit 0
+fi
 
 stamp_age() {
   # Prints the age in seconds of $1, or a huge number if it doesn't exist.

@@ -97,8 +97,8 @@ All three resolve inside a hook command:
 | `${CLAUDE_PROJECT_DIR}` | the project root                               |
 
 `CLAUDE_PLUGIN_ROOT` resolved to the plugin directory while `PWD` was the user's
-project directory, which is the property that replaces the hardcoded
-`$HOME/src/dotfiles/agents/papercuts/...` paths.
+project directory, which is the property that replaces the hardcoded absolute
+`$HOME/...` script paths the dotfiles checkout used.
 
 **Carry this forward:** `CLAUDE_PLUGIN_DATA` ended in `-inline`. The probe was
 installed with `--plugin-dir`. Whether a marketplace install produces a different
@@ -138,12 +138,36 @@ records whether the failure happened under auto mode.
 recorded `rtk read /nonexistent` where the agent had written `cat /nonexistent`.
 A consumer reading `tool_input` is reading what ran, not what the model wrote.
 
+## Second probe — 2026-08-25 (task 5)
+
+Two of the open questions below were closed by a second round of headless
+probes, run the same way (a throwaway plugin, a fixed-absolute-path log).
+
+### `"async": true` and per-command `"timeout"` are accepted
+
+A plugin's `hooks/hooks.json` takes both keys per hook command. The manifest
+loaded, the hooks fired, and `${CLAUDE_PLUGIN_ROOT}` still resolved to the
+installed plugin directory with them present. So the production wiring in
+`agents/settings.json` ports across verbatim — `async: true` on all five entries,
+`timeout: 5` on the two anchor entries, `timeout: 180` on `SessionEnd`.
+
+### `${CLAUDE_PLUGIN_ROOT}` in a SKILL.md is substituted at skill-load time
+
+Inside a plugin's `SKILL.md` the variable is replaced with the **absolute
+installed path** before the agent reads the file. The agent therefore never sees
+the literal `${CLAUDE_PLUGIN_ROOT}` string — it sees a real path — and the env
+var `CLAUDE_PLUGIN_ROOT` is **not** set in the Bash tool environment, so a
+command that tries to expand it at runtime gets an empty string.
+
+**Consequence, and it is the load-bearing one for the install docs:** a user's
+`permissions.allow` entry must name the resolved absolute path on their machine.
+A rule holding a literal `${CLAUDE_PLUGIN_ROOT}` can never match what runs.
+`scripts/papercut-doctor.sh` prints the exact entry for the install it ships
+inside, which is why the doctor resolves paths from its own location rather than
+from `PWD`.
+
 ## Open — not settled by this probe
 
-- **`"async": true` and per-command `"timeout"` in `hooks.json`.** The production
-  `Notification` hook uses both, and `papercut-anchor.sh` depends on `async` so
-  it does not block the notification. The probe declared neither, so plugin
-  support for them is untested. Task 5 must verify before relying on it.
 - **Marketplace vs `--plugin-dir` install.** Only `--plugin-dir` was tested. The
   `-inline` suffix on `CLAUDE_PLUGIN_DATA` is a hint that the two differ.
 - **Hook stdout semantics.** The probe always exited 0 and wrote nothing to
