@@ -148,7 +148,9 @@ esac
 _papercut_regex_escape() {
   # Escapes every ERE metacharacter in $1 so a config value is matched
   # literally, never interpreted — a ledger.repo of "acme/papercuts.x" must
-  # not also trust "acme/papercutsZx".
+  # not also trust "acme/papercutsZx". Inside the bracket expression a
+  # backslash is an ordinary member (POSIX), so "\." below is TWO class
+  # members — backslash and dot — not an escaped dot.
   printf '%s' "$1" | sed -e 's/[][\.|$(){}?+*^]/\\&/g'
 }
 
@@ -217,8 +219,18 @@ _papercut_publish_git() {
         return 1
       fi
     elif [ -n "$gh_repo" ]; then
-      if ! gh repo clone "$gh_repo" "$dir" -- --quiet >>"$LOG" 2>&1; then
-        log "publish: gh repo clone $gh_repo into $dir failed (offline?)"
+      # A bare owner/name clones from gh's default host, which would hand a
+      # non-github.com ledger.host an origin its own allowlist then refuses —
+      # a config combination that could never succeed. Qualify the target
+      # with the configured host so the fresh clone and the trust check are
+      # built from the same identity; keep the bare form for the github.com
+      # default so gh's git_protocol preference still applies.
+      local clone_target="$gh_repo"
+      if [ "${PAPERCUT_CONFIG_LEDGER_HOST:-github.com}" != "github.com" ]; then
+        clone_target="https://${PAPERCUT_CONFIG_LEDGER_HOST}/$gh_repo"
+      fi
+      if ! gh repo clone "$clone_target" "$dir" -- --quiet >>"$LOG" 2>&1; then
+        log "publish: gh repo clone $clone_target into $dir failed (offline?)"
         return 1
       fi
     else

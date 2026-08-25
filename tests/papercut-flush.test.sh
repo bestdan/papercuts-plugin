@@ -1016,6 +1016,25 @@ assert_true "same URL via env alone: nothing published" \
   "$(printf '%s\n' "$remote_content" | grep -q pc_cfg_vs_env_b && echo 0 || echo 1)"
 unset PAPERCUT_LEDGER_DIR PAPERCUT_LEDGER_REMOTE PAPERCUT_CONFIG
 
+# --- 19j2. a non-default ledger.host qualifies the fresh-clone target, so
+#     the clone and the trust check are built from the same identity (a bare
+#     owner/name would clone from gh's default host and produce an origin
+#     the configured-host allowlist then refuses — a config that could never
+#     succeed). Host is an RFC 2606 .invalid name, so the clone fails fast
+#     without touching any real host; the assertion is on the logged target.
+d="$(new_env_dir)"
+eval "$(env_vars_for "$d")"
+unset PAPERCUT_PUBLISH_CMD
+export PAPERCUT_CONFIG="$(ledger_config_repo "acme/papercuts" "ledger.invalid")"
+export PAPERCUT_LEDGER_DIR="$d/fresh-clone"
+rec pc_host_clone "2026-05-10T00:00:00Z" >"$PAPERCUT_SPOOL"
+bash "$flush" --force >/dev/null 2>&1
+rc=$?
+assert_true "non-default host clone: fails (nothing real to clone)" "$([ "$rc" -ne 0 ] && echo 1 || echo 0)"
+assert_true "non-default host clone: target is host-qualified" \
+  "$(grep -q 'gh repo clone https://ledger.invalid/acme/papercuts' "$PAPERCUT_LOG" && echo 1 || echo 0)"
+unset PAPERCUT_LEDGER_DIR PAPERCUT_CONFIG
+
 # --- 19k. missing config + default publisher, invoked directly: exits
 #     non-zero WITHOUT claiming the spool and without publishing — keyed on
 #     the resolver's ledger-missing status line (the resolver itself exits 0
