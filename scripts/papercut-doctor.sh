@@ -81,9 +81,13 @@ if [ -z "$config_path" ]; then
 elif [ ! -f "$config_path" ]; then
   fail config "no config file at $config_path — see docs/install.md"
 else
-  config_kv="$(python3 "$SCRIPT_DIR/papercut_config.py" 2>&1)"
+  # stdout only: this lands in an eval, so a future rc-0 stderr warning from
+  # the resolver must never ride along (papercut-flush.sh captures the same
+  # way). The failure branch re-runs for the error text — read-only and cheap.
+  config_kv="$(python3 "$SCRIPT_DIR/papercut_config.py" 2>/dev/null)"
   if [ $? -ne 0 ]; then
-    fail config "$config_path is present but unparseable: $config_kv"
+    config_err="$(python3 "$SCRIPT_DIR/papercut_config.py" 2>&1 >/dev/null)"
+    fail config "$config_path is present but unparseable: $config_err"
   else
     eval "$config_kv"
     if [ "${PAPERCUT_CONFIG_LEDGER:-missing}" != "ok" ]; then
