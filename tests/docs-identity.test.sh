@@ -31,11 +31,23 @@ host_tag="NYC-BETTER""MENT"
 dotpath="src/dot""files"
 allowed="github.com/$owner/papercuts"
 
-# The four files the acceptance criterion names, plus every later reader-facing
+# The files the acceptance criterion names, plus every later reader-facing
 # doc — added explicitly, never as a glob: docs/plugin-surface.md is excluded on
 # purpose (internal probe notes with a deliberate dotfiles reference, linked
 # only from CONTRIBUTING's internal-notes section).
-files=(README.md docs/install.md docs/schema-compat.md LICENSE CONTRIBUTING.md)
+#
+# There is no employer-name exemption for a grandfathered schema value here, and
+# no file needs one: `machine` is enum ["default", "strict"] in schema/v1.json,
+# so the reference docs never have to name the pre-rename value.
+files=(
+  README.md
+  docs/install.md
+  docs/schema-compat.md
+  docs/privacy.md
+  docs/configuration.md
+  LICENSE
+  CONTRIBUTING.md
+)
 
 for rel in "${files[@]}"; do
   path="$repo_root/$rel"
