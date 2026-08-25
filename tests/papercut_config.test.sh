@@ -196,6 +196,21 @@ assert_eq "explicit-but-missing config: does not fall through to XDG" \
 assert_not_contains "explicit-but-missing config: XDG repo not read" \
   "$out" "acme/should-not-be-read"
 
+# --- 9b. tilde-valued env vars: expanded, not treated as absent ---
+# A literal ~ can reach the env var unexpanded (quoted in shell, or set by
+# another tool). The resolver expands it, matching how papercut_open.py
+# treats PAPERCUT_LEDGER_DIR. HOME is the prelude's throwaway.
+cat >"$HOME/pc-tilde-config.toml" <<'EOF'
+[ledger]
+repo = "acme/from-tilde"
+EOF
+out="$(PAPERCUT_CONFIG='~/pc-tilde-config.toml' python3 "$resolver")"
+rc=$?
+assert_eq "tilde PAPERCUT_CONFIG: exit 0" "0" "$rc"
+assert_eq "tilde PAPERCUT_CONFIG: expanded and read" \
+  "acme/from-tilde" "$(eval_var "$out" PAPERCUT_CONFIG_LEDGER_REPO)"
+rm -f "$HOME/pc-tilde-config.toml"
+
 # --- 10. unparseable config: hard error, nothing usable on stdout ---
 d="$(next_dir)"
 cat >"$d/config.toml" <<'EOF'
@@ -212,6 +227,43 @@ else
 fi
 assert_eq "unparseable config: stdout empty" "" "$out"
 assert_contains "unparseable config: stderr names the file" "$(cat "$d/stderr")" "$d/config.toml"
+
+# --- 10b. invalid UTF-8: same hard error as a syntax error, file named ---
+# tomllib raises UnicodeDecodeError (not TOMLDecodeError) on invalid UTF-8;
+# the resolver must fold it into the same clean ConfigError, not a traceback.
+d="$(next_dir)"
+printf '[ledger]\nrepo = "\xff\xfe"\n' >"$d/config.toml"
+out="$(PAPERCUT_CONFIG="$d/config.toml" python3 "$resolver" 2>"$d/stderr")"
+rc=$?
+if [ "$rc" -ne 0 ]; then
+  printf 'ok   (invalid UTF-8 config: non-zero exit)\n'
+else
+  printf 'FAIL (invalid UTF-8 config: expected non-zero exit, got 0)\n'
+  fail=1
+fi
+assert_eq "invalid UTF-8 config: stdout empty" "" "$out"
+assert_contains "invalid UTF-8 config: stderr names the file" "$(cat "$d/stderr")" "$d/config.toml"
+assert_not_contains "invalid UTF-8 config: no traceback" "$(cat "$d/stderr")" "Traceback"
+
+# --- 10c. existing-but-unreachable config: hard error, not silent defaults ---
+# An unreadable parent directory makes os.path.exists() report False, so an
+# exists() pre-check would resolve a broken config to defaults. The resolver
+# opens directly and treats only FileNotFoundError as absent.
+d="$(next_dir)"
+mkdir -p "$d/locked"
+cat >"$d/locked/config.toml" <<'EOF'
+[ledger]
+repo = "acme/papercuts"
+EOF
+chmod 000 "$d/locked"
+rc_locked="$(PAPERCUT_CONFIG="$d/locked/config.toml" python3 "$resolver" >/dev/null 2>&1; echo $?)"
+chmod 755 "$d/locked"
+if [ "$rc_locked" -ne 0 ]; then
+  printf 'ok   (unreadable parent dir: non-zero exit, not silent defaults)\n'
+else
+  printf 'FAIL (unreadable parent dir: expected non-zero exit, got 0)\n'
+  fail=1
+fi
 
 # --- 11. wrongly-typed value: also a hard error, not a silent default ---
 d="$(next_dir)"

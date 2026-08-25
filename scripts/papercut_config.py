@@ -31,7 +31,11 @@ Requires Python 3.11+ for stdlib tomllib; older interpreters get a clear
 message instead of an ImportError.
 
 Usage:
-  eval "$(python3 papercut_config.py)"
+  out="$(python3 papercut_config.py)" || exit 1
+  eval "$out"
+
+(Not a bare `eval "$(python3 ...)"` -- eval of the empty hard-error output
+exits 0, so the resolver's non-zero exit would be silently swallowed.)
 """
 
 import os
@@ -49,20 +53,26 @@ class ConfigError(Exception):
 def config_path(environ):
     explicit = environ.get("PAPERCUT_CONFIG")
     if explicit:
-        return explicit
+        return os.path.expanduser(explicit)
     xdg = environ.get("XDG_CONFIG_HOME")
     if xdg:
-        return os.path.join(xdg, "papercuts", "config.toml")
+        return os.path.expanduser(os.path.join(xdg, "papercuts", "config.toml"))
     return os.path.expanduser("~/.config/papercuts/config.toml")
 
 
 def _load(path):
+    # Returns None when the file is absent. Opening directly (no exists()
+    # pre-check) keeps an unreadable-but-existing config a hard error:
+    # exists() returns False when a parent directory is unreadable, which
+    # would silently resolve a broken config to defaults.
     import tomllib
 
     try:
         with open(path, "rb") as f:
             return tomllib.load(f)
-    except tomllib.TOMLDecodeError as exc:
+    except FileNotFoundError:
+        return None
+    except (tomllib.TOMLDecodeError, UnicodeDecodeError) as exc:
         raise ConfigError(f"{path}: TOML parse error: {exc}") from exc
     except OSError as exc:
         raise ConfigError(f"{path}: unreadable: {exc}") from exc
@@ -82,9 +92,9 @@ def resolve(environ=os.environ):
     config file that exists but is unparseable or wrongly typed; every other
     state (absent file, missing keys) resolves to defaults plus a status."""
     path = config_path(environ)
-    data = {}
-    if os.path.exists(path):
-        data = _load(path)
+    data = _load(path)
+    if data is None:
+        data = {}
 
     ledger = data.get("ledger", {})
     if not isinstance(ledger, dict):
