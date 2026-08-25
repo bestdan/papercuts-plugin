@@ -12,9 +12,10 @@ fixed instead of forgotten.
 > tokens, keys, JWTs, PEM blocks, credentials in URLs, home paths — and a
 > fail-closed denylist on hosts you mark strict. **It is syntactic, not
 > semantic.** It cannot recognize an internal project name, a person, or a
-> business fact. Make the ledger repo **private**, and read
-> [docs/install.md](docs/install.md) before you point this at anything
-> confidential.
+> business fact. Make the ledger repo **private**. Before you point this at
+> anything confidential, read [docs/install.md](docs/install.md) — and
+> [docs/privacy.md](docs/privacy.md) for what the layered scrub does not
+> cover.
 
 ## What a papercut is
 
@@ -155,6 +156,11 @@ Then run `/papercuts:papercut` in a session to log your first record by hand.
 ## Documentation
 
 - [docs/install.md](docs/install.md) — full install and verification guide.
+- [docs/privacy.md](docs/privacy.md) — the layered scrub, the strict-profile
+  staged rollout, and what remains possible. Read it before you point this at
+  confidential work.
+- [docs/configuration.md](docs/configuration.md) — every config key and
+  environment variable, with defaults.
 - [docs/schema-compat.md](docs/schema-compat.md) — the reader contract every
   consumer of the records is bound by.
 - [CONTRIBUTING.md](CONTRIBUTING.md) — dev setup and the test requirement for
