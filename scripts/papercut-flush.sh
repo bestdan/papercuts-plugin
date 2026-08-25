@@ -22,14 +22,30 @@
 #   only hard gate left is the origin remote-URL check below (a wrong or
 #   hostile origin must still never receive a push).
 #
+# Ledger identity (real publisher only): resolved from the papercuts config
+# file via scripts/papercut_config.py (locations and keys documented there).
+#   ledger.repo        "owner/name" — names the ledger for cloning AND builds
+#                      the anchored origin allowlist together with ledger.host:
+#                      only git@<host>:<repo>(.git)?/? and
+#                      https://<host>/<repo>(.git)?/? are accepted, with both
+#                      components regex-escaped.
+#   ledger.host        allowlist/clone host, default github.com.
+#   ledger.dir         local clone path, default ~/src/papercuts.
+#   ledger.remote_url  full URL, any scheme — joins the allowlist as an
+#                      EXACT-MATCH trust anchor (it comes from the config
+#                      file, the operator's PR-reviewable trust root).
+# Invoked directly with the default publisher and no resolvable ledger
+# identity (no config, or a config with neither repo nor remote_url), the
+# flusher refuses before claiming anything and exits non-zero — it never
+# publishes to a guessed default. An unparseable config is the same refusal.
+#
 # Real publisher env overrides (also so tests never touch the real ledger):
-#   PAPERCUT_LEDGER_DIR     ledger clone path (default ~/src/papercuts)
-#   PAPERCUT_LEDGER_REMOTE  git remote URL for clone + the safety check;
-#                           default is unset, meaning "clone via
-#                           `gh repo clone bestdan/papercuts-ledger`" and accept
-#                           only an origin that is exactly git@github.com:bestdan/
-#                           papercuts-ledger(.git) or https://github.com/bestdan/
-#                           papercuts-ledger(.git), optionally with a trailing slash
+#   PAPERCUT_LEDGER_DIR     ledger clone path; overrides ledger.dir
+#   PAPERCUT_LEDGER_REMOTE  git remote URL for cloning when the clone is
+#                           absent; overrides ledger.remote_url as a VALUE
+#                           only. The resolved origin URL is always judged
+#                           by the config-derived allowlist above — nothing
+#                           env-settable can exempt a target from the check.
 #
 # Duplicate/idempotency note (by design — see papercuts_task_4__push):
 #   The fresh-spool claim is exclusive via the shared flock, but stale-batch
@@ -128,18 +144,35 @@ case "$host_upper" in
   NYC-BETTERMENT*) machine="betterment" ;;
 esac
 
+# shellcheck disable=SC2329 # invoked indirectly via _papercut_remote_url_trusted
+_papercut_regex_escape() {
+  # Escapes every ERE metacharacter in $1 so a config value is matched
+  # literally, never interpreted — a ledger.repo of "acme/papercuts.x" must
+  # not also trust "acme/papercutsZx".
+  printf '%s' "$1" | sed -e 's/[][\.|$(){}?+*^]/\\&/g'
+}
+
 # shellcheck disable=SC2329 # invoked indirectly via $PAPERCUT_PUBLISH_CMD
 _papercut_remote_url_trusted() {
-  # $1=actual origin URL, $2=configured remote (may be empty). Anchored
-  # match — no substring check — so a hostile lookalike host (e.g.
-  # https://evil.example/bestdan/papercuts-ledger.git) can never pass.
-  local url="$1" configured="$2"
-  if [ -n "$configured" ]; then
-    [ "$url" = "$configured" ]
-    return
+  # $1=actual origin URL. Trusted iff it exactly equals the config file's
+  # ledger.remote_url (the operator's PR-reviewable trust anchor), or it
+  # matches one of the two anchored URL forms built from the config's
+  # ledger.host/ledger.repo, both regex-escaped. Anchored match — no
+  # substring check — so a hostile lookalike host (e.g.
+  # https://evil.example/<repo>.git) can never pass. There is deliberately
+  # no env-var path to trust here: PAPERCUT_LEDGER_REMOTE can change what
+  # the flusher aims at, but the target is still judged by this gate.
+  local url="$1"
+  if [ -n "${PAPERCUT_CONFIG_LEDGER_REMOTE_URL:-}" ] \
+    && [ "$url" = "$PAPERCUT_CONFIG_LEDGER_REMOTE_URL" ]; then
+    return 0
   fi
-  [[ "$url" =~ ^git@github\.com:bestdan/papercuts-ledger(\.git)?/?$ ]] && return 0
-  [[ "$url" =~ ^https://github\.com/bestdan/papercuts-ledger(\.git)?/?$ ]] && return 0
+  [ -n "${PAPERCUT_CONFIG_LEDGER_REPO:-}" ] || return 1
+  local host_re repo_re
+  host_re="$(_papercut_regex_escape "${PAPERCUT_CONFIG_LEDGER_HOST:-github.com}")"
+  repo_re="$(_papercut_regex_escape "$PAPERCUT_CONFIG_LEDGER_REPO")"
+  [[ "$url" =~ ^git@${host_re}:${repo_re}(\.git)?/?$ ]] && return 0
+  [[ "$url" =~ ^https://${host_re}/${repo_re}(\.git)?/?$ ]] && return 0
   return 1
 }
 
@@ -167,9 +200,14 @@ _papercut_publish_git() {
   # return, and the record `id` dedup makes a retry of an already-published
   # batch a harmless no-op.
   local group_file="$1" month="$2"
-  local dir="${PAPERCUT_LEDGER_DIR:-$HOME/src/papercuts}"
-  local configured_remote="${PAPERCUT_LEDGER_REMOTE:-}"
-  local gh_repo="bestdan/papercuts-ledger"
+  # Config is the source of truth; the two env vars survive as overrides of
+  # the resolved VALUE only (the whole test suite drives the publisher
+  # through them). The clone target they select is still judged by the
+  # allowlist below — an override can change what the flusher aims at, never
+  # exempt that target from the check.
+  local dir="${PAPERCUT_LEDGER_DIR:-${PAPERCUT_CONFIG_LEDGER_DIR:-$HOME/src/papercuts}}"
+  local configured_remote="${PAPERCUT_LEDGER_REMOTE:-${PAPERCUT_CONFIG_LEDGER_REMOTE_URL:-}}"
+  local gh_repo="${PAPERCUT_CONFIG_LEDGER_REPO:-}"
 
   if [ ! -d "$dir/.git" ]; then
     mkdir -p "$(dirname "$dir")" 2>/dev/null
@@ -178,11 +216,16 @@ _papercut_publish_git() {
         log "publish: clone of $configured_remote into $dir failed"
         return 1
       fi
-    else
+    elif [ -n "$gh_repo" ]; then
       if ! gh repo clone "$gh_repo" "$dir" -- --quiet >>"$LOG" 2>&1; then
         log "publish: gh repo clone $gh_repo into $dir failed (offline?)"
         return 1
       fi
+    else
+      # Unreachable when the pre-claim identity gate ran (it requires repo
+      # or remote_url), but fail closed rather than clone a guessed default.
+      log "publish: no ledger.repo or remote url configured; refusing to clone"
+      return 1
     fi
   fi
 
@@ -197,7 +240,7 @@ _papercut_publish_git() {
     log "publish: cannot read origin remote url in $dir (rc=$remote_rc); refusing"
     return 1
   fi
-  if ! _papercut_remote_url_trusted "$remote_url" "$configured_remote"; then
+  if ! _papercut_remote_url_trusted "$remote_url"; then
     log "publish: untrusted origin fetch url ($remote_url); refusing"
     return 1
   fi
@@ -211,7 +254,7 @@ _papercut_publish_git() {
     log "publish: cannot read origin push url in $dir (rc=$push_rc); refusing"
     return 1
   fi
-  if ! _papercut_remote_url_trusted "$push_url" "$configured_remote"; then
+  if ! _papercut_remote_url_trusted "$push_url"; then
     log "publish: untrusted origin push url ($push_url); refusing"
     return 1
   fi
@@ -471,6 +514,35 @@ if [ "$FORCE" -ne 1 ]; then
       echo "papercut-flush: held (throttled, last flush ${ok_age}s ago, <24h); rerun with --force to publish now"
       exit 0
     fi
+  fi
+fi
+
+# --- ledger identity gate (default publisher only): fail closed BEFORE the
+# claim. Publishing needs a ledger identity from the config file; refusing
+# here, before any spool mutation, means a missing or broken config can
+# never strand a claimed batch or publish to a guessed default. Keyed on the
+# resolver's report: the resolver itself exits 0 on an absent config (the
+# always-resolves contract) and reports PAPERCUT_CONFIG_LEDGER=missing; only
+# an unparseable config (or a pre-3.11 python3) makes it fail outright.
+# A custom $PAPERCUT_PUBLISH_CMD replaces the git publisher entirely, so it
+# needs no ledger identity and skips this gate — capture and the gate keep
+# working with no config at all.
+if [ "$PAPERCUT_PUBLISH_CMD" = "_papercut_publish_git" ]; then
+  config_resolver="$(dirname "$0")/papercut_config.py"
+  config_kv="$(python3 "$config_resolver")"
+  config_rc=$?
+  if [ "$config_rc" -ne 0 ]; then
+    # The resolver already printed the specific error (parse failure, file
+    # path, python version) on stderr, which passes through above.
+    echo "papercut-flush: config resolution failed (rc=$config_rc); refusing to publish. Fix the config file, or see scripts/papercut_config.py for its locations." >&2
+    log "hold reason=config-unresolvable rc=$config_rc"
+    exit 1
+  fi
+  eval "$config_kv"
+  if [ "${PAPERCUT_CONFIG_LEDGER:-missing}" != "ok" ]; then
+    echo "papercut-flush: ledger identity unresolved — set ledger.repo (owner/name) or ledger.remote_url in the papercuts config file (\$PAPERCUT_CONFIG, \$XDG_CONFIG_HOME/papercuts/config.toml, or ~/.config/papercuts/config.toml). Nothing was claimed or published." >&2
+    log "hold reason=ledger-identity-unresolved"
+    exit 1
   fi
 fi
 

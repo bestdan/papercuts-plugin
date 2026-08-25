@@ -88,6 +88,31 @@ EOF
 default_host_shim="$(hostname_shim_dir "some-laptop")"
 export PATH="$default_host_shim:$PATH"
 
+# Ledger-identity config fixtures. The publisher's origin allowlist is built
+# from the config file (task 3b), so every fixture that drives the REAL
+# publisher writes a temp config: remote_url is the exact-match trust anchor
+# that lets a file:// bare repo pass the allowlist legitimately (an env-only
+# PAPERCUT_LEDGER_REMOTE no longer can — that bypass is deleted).
+ledger_config() {
+  # ledger_config <remote-url> -> temp config trusting exactly that URL
+  local url="$1" cfg
+  cfg="$(next_dir)/config.toml"
+  printf '[ledger]\nremote_url = "%s"\n' "$url" >"$cfg"
+  printf '%s' "$cfg"
+}
+
+ledger_config_repo() {
+  # ledger_config_repo <owner/name> [host] -> temp config naming the ledger
+  # repo, exercising the anchored host/repo-derived allowlist regexes
+  local repo="$1" host="${2:-}" cfg
+  cfg="$(next_dir)/config.toml"
+  {
+    printf '[ledger]\nrepo = "%s"\n' "$repo"
+    [ -n "$host" ] && printf 'host = "%s"\n' "$host"
+  } >"$cfg"
+  printf '%s' "$cfg"
+}
+
 stub_publish="$workdir/stub_publish.sh"
 cat >"$stub_publish" <<'EOF'
 #!/usr/bin/env bash
@@ -406,7 +431,7 @@ d="$(new_env_dir)"
 eval "$(env_vars_for "$d")"
 unset PAPERCUT_PUBLISH_CMD # fall back to the built-in default: _papercut_publish_git
 export PAPERCUT_LEDGER_DIR="$d/no-such-ledger-clone"
-export PAPERCUT_LEDGER_REMOTE="file://$d/no-such-remote.git"
+export PAPERCUT_CONFIG="$(ledger_config "file://$d/no-such-remote.git")"
 rec pc_default_stub "2026-09-03T00:00:00Z" >"$PAPERCUT_SPOOL"
 bash "$flush" --force
 rc=$?
@@ -414,7 +439,7 @@ assert_eq "default publisher: run reports failure (non-zero)" "1" "$rc"
 shopt -s nullglob; leftover=("$PAPERCUT_BATCH_DIR"/spool.batch.*); shopt -u nullglob
 assert_eq "default publisher: batch RETAINED (no data loss)" "1" "${#leftover[@]}"
 assert_true "default publisher: failure stamp set" "$([ -f "$PAPERCUT_FLUSH_FAIL" ] && echo 1 || echo 0)"
-unset PAPERCUT_LEDGER_DIR PAPERCUT_LEDGER_REMOTE
+unset PAPERCUT_LEDGER_DIR PAPERCUT_CONFIG
 
 # =============================================================================
 # 11. an invalid-UTF-8 line is QUARANTINED (surrogateescape), not left to crash
@@ -491,7 +516,7 @@ assert_eq "stale batch bypasses success throttle: batch consumed" "0" "${#leftov
 # =============================================================================
 # Publisher (_papercut_publish_git, the real default publisher) tests against
 # a file:// bare remote fixture. Never touches real ~/src/papercuts or GitHub
-# — PAPERCUT_LEDGER_DIR/PAPERCUT_LEDGER_REMOTE are always pointed at temp
+# — PAPERCUT_LEDGER_DIR and each fixture's PAPERCUT_CONFIG point at temp
 # dirs. Two machines are modeled as two independent clones of the same bare
 # repo: whichever one pushes second sees the other's commit on its next
 # fetch (which _papercut_publish_git always does before building its own
@@ -543,7 +568,7 @@ bare="$(make_bare_ledger)"
 clone="$d/ledger-clone"
 clone_ledger "$bare" "$clone"
 export PAPERCUT_LEDGER_DIR="$clone"
-export PAPERCUT_LEDGER_REMOTE="file://$bare"
+export PAPERCUT_CONFIG="$(ledger_config "file://$bare")"
 rec pc_remote_1 "2026-01-05T00:00:00Z" >"$PAPERCUT_SPOOL"
 bash "$flush" --force
 rc=$?
@@ -551,7 +576,7 @@ assert_eq "remote happy path: exits 0" "0" "$rc"
 remote_content="$(ledger_file_on_remote "$bare" "2026-01")"
 assert_true "remote happy path: record landed on remote" \
   "$(printf '%s\n' "$remote_content" | grep -q pc_remote_1 && echo 1 || echo 0)"
-unset PAPERCUT_LEDGER_DIR PAPERCUT_LEDGER_REMOTE
+unset PAPERCUT_LEDGER_DIR PAPERCUT_CONFIG
 
 # --- 14b. a confirmed publish reports on stdout, and says so only when it
 # actually published. A silent exit 0 is indistinguishable from a no-op, which
@@ -563,7 +588,7 @@ bare="$(make_bare_ledger)"
 clone="$d/ledger-clone"
 clone_ledger "$bare" "$clone"
 export PAPERCUT_LEDGER_DIR="$clone"
-export PAPERCUT_LEDGER_REMOTE="file://$bare"
+export PAPERCUT_CONFIG="$(ledger_config "file://$bare")"
 rec pc_stdout_1 "2026-03-05T00:00:00Z" >"$PAPERCUT_SPOOL"
 rec pc_stdout_2 "2026-03-06T00:00:00Z" >>"$PAPERCUT_SPOOL"
 publish_out="$(bash "$flush" --force)"
@@ -593,7 +618,7 @@ assert_true "publish reporting: never describes the clone as needing a pull" \
 rec pc_stdout_1 "2026-03-05T00:00:00Z" >"$PAPERCUT_SPOOL"
 noop_out="$(bash "$flush" --force)"
 assert_eq "publish reporting: silent when nothing new is published" "" "$noop_out"
-unset PAPERCUT_LEDGER_DIR PAPERCUT_LEDGER_REMOTE
+unset PAPERCUT_LEDGER_DIR PAPERCUT_CONFIG
 
 # --- 15. push succeeds but reported as failure -> retry does not duplicate -
 # Simulated by re-presenting the SAME record for publish a second time (the
@@ -606,7 +631,7 @@ bare="$(make_bare_ledger)"
 clone="$d/ledger-clone"
 clone_ledger "$bare" "$clone"
 export PAPERCUT_LEDGER_DIR="$clone"
-export PAPERCUT_LEDGER_REMOTE="file://$bare"
+export PAPERCUT_CONFIG="$(ledger_config "file://$bare")"
 rec pc_retry_1 "2026-02-05T00:00:00Z" >"$PAPERCUT_SPOOL"
 bash "$flush" --force
 rc1=$?
@@ -618,7 +643,7 @@ assert_eq "duplicate publish: retry run exits 0" "0" "$rc2"
 remote_content="$(ledger_file_on_remote "$bare" "2026-02")"
 dup_count="$(printf '%s\n' "$remote_content" | grep -c pc_retry_1)"
 assert_eq "duplicate publish: id appears exactly once on remote" "1" "$dup_count"
-unset PAPERCUT_LEDGER_DIR PAPERCUT_LEDGER_REMOTE
+unset PAPERCUT_LEDGER_DIR PAPERCUT_CONFIG
 
 # --- 16. divergent remote: a "second machine" push lands strictly BETWEEN
 #     this run's fetch and its first push attempt, forcing a genuine
@@ -636,7 +661,7 @@ bare="$(make_bare_ledger)"
 clone="$d/ledger-clone"
 clone_ledger "$bare" "$clone"
 export PAPERCUT_LEDGER_DIR="$clone"
-export PAPERCUT_LEDGER_REMOTE="file://$bare"
+export PAPERCUT_CONFIG="$(ledger_config "file://$bare")"
 rec pc_machine_a "2026-03-06T00:00:00Z" >"$PAPERCUT_SPOOL"
 
 machine_b="$d/machine-b"
@@ -678,7 +703,7 @@ assert_eq "divergent remote: machine A's record exactly once" "1" "$count_a"
 assert_eq "divergent remote: machine B's record exactly once" "1" "$count_b"
 only_main_wt="$(git -C "$clone" worktree list | wc -l | tr -d ' ')"
 assert_eq "divergent remote: non-ff retry leaves no leftover worktree" "1" "$only_main_wt"
-unset PAPERCUT_LEDGER_DIR PAPERCUT_LEDGER_REMOTE
+unset PAPERCUT_LEDGER_DIR PAPERCUT_CONFIG
 
 # --- 17. dirty clone -> publish STILL succeeds via the disposable worktree,
 #     and the clone's own worktree/HEAD/branch/dirt are left byte-for-byte
@@ -695,7 +720,7 @@ head_before="$(git -C "$clone" rev-parse HEAD)"
 branch_before="$(git -C "$clone" rev-parse --abbrev-ref HEAD)"
 porcelain_before="$(git -C "$clone" status --porcelain)"
 export PAPERCUT_LEDGER_DIR="$clone"
-export PAPERCUT_LEDGER_REMOTE="file://$bare"
+export PAPERCUT_CONFIG="$(ledger_config "file://$bare")"
 rec pc_dirty_1 "2026-04-05T00:00:00Z" >"$PAPERCUT_SPOOL"
 bash "$flush" --force
 rc=$?
@@ -710,7 +735,7 @@ remote_content="$(ledger_file_on_remote "$bare" "2026-04")"
 assert_true "dirty clone: record published to remote" "$(printf '%s\n' "$remote_content" | grep -q pc_dirty_1 && echo 1 || echo 0)"
 only_main_wt="$(git -C "$clone" worktree list | wc -l | tr -d ' ')"
 assert_eq "dirty clone: no leftover worktrees" "1" "$only_main_wt"
-unset PAPERCUT_LEDGER_DIR PAPERCUT_LEDGER_REMOTE
+unset PAPERCUT_LEDGER_DIR PAPERCUT_CONFIG
 
 # --- 18. wrong branch / local unpushed commit -> publish STILL succeeds via
 #     the disposable worktree; the clone is left on the same branch/commit.
@@ -726,7 +751,7 @@ git -C "$clone" add ledger/unpushed.txt
 git -C "$clone" commit --quiet -m "local unpushed commit"
 head_before="$(git -C "$clone" rev-parse HEAD)"
 export PAPERCUT_LEDGER_DIR="$clone"
-export PAPERCUT_LEDGER_REMOTE="file://$bare"
+export PAPERCUT_CONFIG="$(ledger_config "file://$bare")"
 rec pc_branch_1 "2026-04-06T00:00:00Z" >"$PAPERCUT_SPOOL"
 bash "$flush" --force
 rc=$?
@@ -740,7 +765,7 @@ remote_content="$(ledger_file_on_remote "$bare" "2026-04")"
 assert_true "wrong branch: record published to remote" "$(printf '%s\n' "$remote_content" | grep -q pc_branch_1 && echo 1 || echo 0)"
 only_main_wt="$(git -C "$clone" worktree list | wc -l | tr -d ' ')"
 assert_eq "wrong branch: no leftover worktrees" "1" "$only_main_wt"
-unset PAPERCUT_LEDGER_DIR PAPERCUT_LEDGER_REMOTE
+unset PAPERCUT_LEDGER_DIR PAPERCUT_CONFIG
 
 # --- 19. wrong remote -> untouched, publish returns non-zero, batch retained
 d="$(new_env_dir)"
@@ -751,7 +776,7 @@ other_bare="$(make_bare_ledger)"
 clone="$d/ledger-clone"
 clone_ledger "$other_bare" "$clone" # clone's real origin is a DIFFERENT repo
 export PAPERCUT_LEDGER_DIR="$clone"
-export PAPERCUT_LEDGER_REMOTE="file://$bare" # expected remote != clone's origin
+export PAPERCUT_CONFIG="$(ledger_config "file://$bare")" # trusted remote != clone's origin
 rec pc_remote_mismatch_1 "2026-04-07T00:00:00Z" >"$PAPERCUT_SPOOL"
 bash "$flush" --force
 rc=$?
@@ -760,12 +785,12 @@ shopt -s nullglob; leftover=("$PAPERCUT_BATCH_DIR"/spool.batch.*); shopt -u null
 assert_eq "wrong remote: batch retained" "1" "${#leftover[@]}"
 remote_content="$(ledger_file_on_remote "$bare" "2026-04")"
 assert_true "wrong remote: expected remote untouched" "$([ -z "$remote_content" ] && echo 1 || echo 0)"
-unset PAPERCUT_LEDGER_DIR PAPERCUT_LEDGER_REMOTE
+unset PAPERCUT_LEDGER_DIR PAPERCUT_CONFIG
 
-# --- 19b. hostile lookalike origin, no PAPERCUT_LEDGER_REMOTE configured ->
-#     the anchored github.com/bestdan/papercuts-ledger regex must reject it
-#     (Fix C: no substring bypass). A URL merely CONTAINING
-#     "bestdan/papercuts-ledger" on a different host must not pass.
+# --- 19b. hostile lookalike origin, config names the repo, no remote_url ->
+#     the anchored regex BUILT FROM ledger.host/ledger.repo must reject it
+#     (Fix C: no substring bypass). A URL merely CONTAINING the configured
+#     repo on a different host must not pass.
 d="$(new_env_dir)"
 eval "$(env_vars_for "$d")"
 unset PAPERCUT_PUBLISH_CMD PAPERCUT_LEDGER_REMOTE
@@ -773,6 +798,7 @@ bare="$(make_bare_ledger)"
 clone="$d/ledger-clone"
 clone_ledger "$bare" "$clone"
 git -C "$clone" remote set-url origin "https://evil.example/bestdan/papercuts-ledger.git"
+export PAPERCUT_CONFIG="$(ledger_config_repo "bestdan/papercuts-ledger")"
 export PAPERCUT_LEDGER_DIR="$clone"
 rec pc_hostile_1 "2026-04-08T00:00:00Z" >"$PAPERCUT_SPOOL"
 bash "$flush" --force
@@ -782,7 +808,7 @@ shopt -s nullglob; leftover=("$PAPERCUT_BATCH_DIR"/spool.batch.*); shopt -u null
 assert_eq "hostile lookalike origin: batch retained" "1" "${#leftover[@]}"
 remote_content="$(ledger_file_on_remote "$bare" "2026-04")"
 assert_true "hostile lookalike origin: real remote untouched" "$([ -z "$remote_content" ] && echo 1 || echo 0)"
-unset PAPERCUT_LEDGER_DIR
+unset PAPERCUT_LEDGER_DIR PAPERCUT_CONFIG
 
 # --- 19d. TRUSTED fetch origin but a HOSTILE remote.origin.pushurl. `git push
 #     origin` targets the pushurl, so a gate that validated only the fetch url
@@ -797,7 +823,7 @@ clone="$d/ledger-clone"
 clone_ledger "$bare" "$clone"
 git -C "$clone" remote set-url --push origin "file://$hostile_bare"
 export PAPERCUT_LEDGER_DIR="$clone"
-export PAPERCUT_LEDGER_REMOTE="file://$bare" # trusted, and == the fetch origin
+export PAPERCUT_CONFIG="$(ledger_config "file://$bare")" # trusted, and == the fetch origin
 rec pc_pushurl_1 "2026-04-10T00:00:00Z" >"$PAPERCUT_SPOOL"
 bash "$flush" --force
 rc=$?
@@ -806,7 +832,7 @@ shopt -s nullglob; leftover=("$PAPERCUT_BATCH_DIR"/spool.batch.*); shopt -u null
 assert_eq "hostile pushurl: batch retained" "1" "${#leftover[@]}"
 assert_true "hostile pushurl: trusted remote untouched" "$([ -z "$(ledger_file_on_remote "$bare" "2026-04")" ] && echo 1 || echo 0)"
 assert_true "hostile pushurl: hostile remote untouched" "$([ -z "$(ledger_file_on_remote "$hostile_bare" "2026-04")" ] && echo 1 || echo 0)"
-unset PAPERCUT_LEDGER_DIR PAPERCUT_LEDGER_REMOTE
+unset PAPERCUT_LEDGER_DIR PAPERCUT_CONFIG
 
 # --- 19c. a record with a missing/empty/non-string id in the group file ->
 #     publish returns non-zero, the whole batch is retained (Fix B: fail
@@ -818,7 +844,7 @@ bare="$(make_bare_ledger)"
 clone="$d/ledger-clone"
 clone_ledger "$bare" "$clone"
 export PAPERCUT_LEDGER_DIR="$clone"
-export PAPERCUT_LEDGER_REMOTE="file://$bare"
+export PAPERCUT_CONFIG="$(ledger_config "file://$bare")"
 {
   rec pc_id_ok "2026-04-09T00:00:00Z"
   printf '{"id":"","v":1,"producer":"test/1","ts":"2026-04-09T00:00:01Z","machine":"default","source":"manual","category":"harness_config","severity":"low","title":"t","description":"d","repo":"dotfiles"}\n'
@@ -832,7 +858,219 @@ remote_content="$(ledger_file_on_remote "$bare" "2026-04")"
 assert_true "bad id in batch: nothing published (fail-closed, not partial)" "$([ -z "$remote_content" ] && echo 1 || echo 0)"
 only_main_wt="$(git -C "$clone" worktree list | wc -l | tr -d ' ')"
 assert_eq "bad id in batch: no leftover worktree after a failed publish" "1" "$only_main_wt"
-unset PAPERCUT_LEDGER_DIR PAPERCUT_LEDGER_REMOTE
+unset PAPERCUT_LEDGER_DIR PAPERCUT_CONFIG
+
+# =============================================================================
+# 3b security: the origin allowlist is BUILT FROM config, and nothing
+# env-settable can exempt a target from it. These are the assertions that
+# prove the control survived the refactor — a happy-path test alone would not.
+# =============================================================================
+
+# --- 19e. attack-URL matrix: for a configured repo acme/papercuts, the
+#     anchored allowlist must reject a lookalike host, a path-prefix attack,
+#     a suffix attack, and an embedded-credentials URL. Each rejection must
+#     come from the allowlist itself (the "untrusted" log line), retain the
+#     batch, and touch no remote.
+for attack_url in \
+  "https://evil.example/acme/papercuts.git" \
+  "https://github.com/acme/papercuts-evil.git" \
+  "https://github.com/notacme/papercuts.git" \
+  "https://user:token@github.com/acme/papercuts.git"; do
+  d="$(new_env_dir)"
+  eval "$(env_vars_for "$d")"
+  unset PAPERCUT_PUBLISH_CMD
+  bare="$(make_bare_ledger)"
+  clone="$d/ledger-clone"
+  clone_ledger "$bare" "$clone"
+  git -C "$clone" remote set-url origin "$attack_url"
+  export PAPERCUT_CONFIG="$(ledger_config_repo "acme/papercuts")"
+  export PAPERCUT_LEDGER_DIR="$clone"
+  rec pc_attack "2026-05-01T00:00:00Z" >"$PAPERCUT_SPOOL"
+  bash "$flush" --force >/dev/null 2>&1
+  rc=$?
+  assert_eq "allowlist rejects $attack_url" "1" "$rc"
+  shopt -s nullglob; leftover=("$PAPERCUT_BATCH_DIR"/spool.batch.*); shopt -u nullglob
+  assert_eq "allowlist reject retains the batch ($attack_url)" "1" "${#leftover[@]}"
+  assert_true "reject came from the allowlist, not a later step ($attack_url)" \
+    "$(grep -q 'untrusted origin fetch url' "$PAPERCUT_LOG" && echo 1 || echo 0)"
+  unset PAPERCUT_LEDGER_DIR PAPERCUT_CONFIG
+done
+
+# --- 19f. positive control for the regex forms: an origin that matches the
+#     config-derived https://<host>/<repo>(.git) form must PASS the allowlist
+#     (the run then fails later, at fetch — host "ledger.invalid" is an
+#     RFC 2606 reserved TLD that never resolves, so no real host is touched).
+#     Without this, every 19e rejection would also pass with an allowlist
+#     that rejects everything.
+d="$(new_env_dir)"
+eval "$(env_vars_for "$d")"
+unset PAPERCUT_PUBLISH_CMD
+bare="$(make_bare_ledger)"
+clone="$d/ledger-clone"
+clone_ledger "$bare" "$clone"
+git -C "$clone" remote set-url origin "https://ledger.invalid/acme/papercuts.git"
+export PAPERCUT_CONFIG="$(ledger_config_repo "acme/papercuts" "ledger.invalid")"
+export PAPERCUT_LEDGER_DIR="$clone"
+rec pc_regex_pass "2026-05-02T00:00:00Z" >"$PAPERCUT_SPOOL"
+bash "$flush" --force >/dev/null 2>&1
+assert_true "config-derived regex form: origin passes the allowlist" \
+  "$(grep -q 'untrusted origin' "$PAPERCUT_LOG" && echo 0 || echo 1)"
+assert_true "config-derived regex form: run proceeded to the fetch" \
+  "$(grep -q 'publish: fetch failed' "$PAPERCUT_LOG" && echo 1 || echo 0)"
+unset PAPERCUT_LEDGER_DIR PAPERCUT_CONFIG
+
+# --- 19g. regex metacharacters in ledger.repo are escaped, not interpreted:
+#     with repo "acme/papercuts.x", an origin "acme/papercutsZx" must be
+#     REJECTED by the allowlist — an unescaped "." would match it (and the
+#     run would then show up at the fetch step instead, which the assertion
+#     on the "untrusted" line distinguishes deterministically).
+d="$(new_env_dir)"
+eval "$(env_vars_for "$d")"
+unset PAPERCUT_PUBLISH_CMD
+bare="$(make_bare_ledger)"
+clone="$d/ledger-clone"
+clone_ledger "$bare" "$clone"
+git -C "$clone" remote set-url origin "https://ledger.invalid/acme/papercutsZx.git"
+export PAPERCUT_CONFIG="$(ledger_config_repo "acme/papercuts.x" "ledger.invalid")"
+export PAPERCUT_LEDGER_DIR="$clone"
+rec pc_regex_meta "2026-05-03T00:00:00Z" >"$PAPERCUT_SPOOL"
+bash "$flush" --force >/dev/null 2>&1
+rc=$?
+assert_eq "regex metachars in ledger.repo: lookalike rejected" "1" "$rc"
+assert_true "regex metachars in ledger.repo: rejected BY the allowlist (escaped, not interpreted)" \
+  "$(grep -q 'untrusted origin fetch url' "$PAPERCUT_LOG" && echo 1 || echo 0)"
+unset PAPERCUT_LEDGER_DIR PAPERCUT_CONFIG
+
+# --- 19h. the exact-equality bypass is GONE: PAPERCUT_LEDGER_REMOTE set to a
+#     URL that fails the config-derived allowlist is rejected even though the
+#     origin equals it exactly — the equality that used to grant trust.
+d="$(new_env_dir)"
+eval "$(env_vars_for "$d")"
+unset PAPERCUT_PUBLISH_CMD
+bare="$(make_bare_ledger)"
+clone="$d/ledger-clone"
+clone_ledger "$bare" "$clone"
+git -C "$clone" remote set-url origin "https://evil.example/acme/papercuts.git"
+export PAPERCUT_CONFIG="$(ledger_config_repo "acme/papercuts")"
+export PAPERCUT_LEDGER_DIR="$clone"
+export PAPERCUT_LEDGER_REMOTE="https://evil.example/acme/papercuts.git"
+rec pc_bypass_gone "2026-05-04T00:00:00Z" >"$PAPERCUT_SPOOL"
+bash "$flush" --force >/dev/null 2>&1
+rc=$?
+assert_eq "env override matching a hostile origin exactly: still rejected" "1" "$rc"
+assert_true "env override grants no trust: allowlist logged the refusal" \
+  "$(grep -q 'untrusted origin fetch url' "$PAPERCUT_LOG" && echo 1 || echo 0)"
+shopt -s nullglob; leftover=("$PAPERCUT_BATCH_DIR"/spool.batch.*); shopt -u nullglob
+assert_eq "env override grants no trust: batch retained" "1" "${#leftover[@]}"
+unset PAPERCUT_LEDGER_DIR PAPERCUT_LEDGER_REMOTE PAPERCUT_CONFIG
+
+# --- 19i. a LEGITIMATE PAPERCUT_LEDGER_REMOTE override — one the config's
+#     allowlist accepts — still works as a value override: with no clone on
+#     disk it selects what to clone, and the resulting origin passes the
+#     config's remote_url trust anchor, so the publish completes end-to-end.
+d="$(new_env_dir)"
+eval "$(env_vars_for "$d")"
+unset PAPERCUT_PUBLISH_CMD
+bare="$(make_bare_ledger)"
+export PAPERCUT_CONFIG="$(ledger_config "file://$bare")"
+export PAPERCUT_LEDGER_DIR="$d/fresh-clone"
+export PAPERCUT_LEDGER_REMOTE="file://$bare"
+rec pc_env_legit "2026-05-05T00:00:00Z" >"$PAPERCUT_SPOOL"
+# The clone is created by the flusher itself here, so unlike the
+# clone_ledger fixtures nothing set a local committer identity, and the
+# prelude pins global git config to /dev/null — supply the ident via env.
+GIT_AUTHOR_NAME="Test Machine" GIT_AUTHOR_EMAIL="test@example.com" \
+  GIT_COMMITTER_NAME="Test Machine" GIT_COMMITTER_EMAIL="test@example.com" \
+  bash "$flush" --force >/dev/null 2>&1
+rc=$?
+assert_eq "legitimate env override (matches allowlist): publishes, exits 0" "0" "$rc"
+remote_content="$(ledger_file_on_remote "$bare" "2026-05")"
+assert_true "legitimate env override: record landed on remote" \
+  "$(printf '%s\n' "$remote_content" | grep -q pc_env_legit && echo 1 || echo 0)"
+unset PAPERCUT_LEDGER_DIR PAPERCUT_LEDGER_REMOTE PAPERCUT_CONFIG
+
+# --- 19j. the config-vs-env distinction is real: the SAME file:// URL is
+#     accepted when config's ledger.remote_url names it, and rejected when it
+#     arrives through PAPERCUT_LEDGER_REMOTE alone (config resolves identity
+#     via ledger.repo but trusts nothing matching a file:// URL).
+d="$(new_env_dir)"
+eval "$(env_vars_for "$d")"
+unset PAPERCUT_PUBLISH_CMD
+bare="$(make_bare_ledger)"
+clone="$d/ledger-clone"
+clone_ledger "$bare" "$clone"
+export PAPERCUT_LEDGER_DIR="$clone"
+export PAPERCUT_CONFIG="$(ledger_config "file://$bare")"
+rec pc_cfg_vs_env_a "2026-05-06T00:00:00Z" >"$PAPERCUT_SPOOL"
+bash "$flush" --force >/dev/null 2>&1
+rc=$?
+assert_eq "config remote_url trusts the URL: publishes" "0" "$rc"
+export PAPERCUT_CONFIG="$(ledger_config_repo "acme/papercuts")"
+export PAPERCUT_LEDGER_REMOTE="file://$bare"
+rec pc_cfg_vs_env_b "2026-05-07T00:00:00Z" >"$PAPERCUT_SPOOL"
+bash "$flush" --force >/dev/null 2>&1
+rc=$?
+assert_eq "same URL via env alone: rejected" "1" "$rc"
+remote_content="$(ledger_file_on_remote "$bare" "2026-05")"
+assert_true "same URL via env alone: nothing published" \
+  "$(printf '%s\n' "$remote_content" | grep -q pc_cfg_vs_env_b && echo 0 || echo 1)"
+unset PAPERCUT_LEDGER_DIR PAPERCUT_LEDGER_REMOTE PAPERCUT_CONFIG
+
+# --- 19k. missing config + default publisher, invoked directly: exits
+#     non-zero WITHOUT claiming the spool and without publishing — keyed on
+#     the resolver's ledger-missing status line (the resolver itself exits 0
+#     on an absent config), never a publish to a guessed default.
+d="$(new_env_dir)"
+eval "$(env_vars_for "$d")"
+unset PAPERCUT_PUBLISH_CMD PAPERCUT_CONFIG
+rec pc_no_config "2026-05-08T00:00:00Z" >"$PAPERCUT_SPOOL"
+err_out="$(bash "$flush" --force 2>&1 >/dev/null)"
+rc=$?
+assert_true "missing config: exits non-zero" "$([ "$rc" -ne 0 ] && echo 1 || echo 0)"
+assert_true "missing config: spool NOT claimed" "$([ -s "$PAPERCUT_SPOOL" ] && echo 1 || echo 0)"
+shopt -s nullglob; leftover=("$PAPERCUT_BATCH_DIR"/spool.batch.*); shopt -u nullglob
+assert_eq "missing config: no batch created" "0" "${#leftover[@]}"
+assert_true "missing config: message names the unresolved ledger identity" \
+  "$(printf '%s' "$err_out" | grep -q 'ledger identity unresolved' && echo 1 || echo 0)"
+assert_true "missing config: hold reason logged" \
+  "$(grep -q 'hold reason=ledger-identity-unresolved' "$PAPERCUT_LOG" && echo 1 || echo 0)"
+
+# --- 19l. unparseable config + default publisher: the resolver's hard error
+#     is a hard error here too — non-zero, nothing claimed.
+d="$(new_env_dir)"
+eval "$(env_vars_for "$d")"
+unset PAPERCUT_PUBLISH_CMD
+broken_cfg="$(next_dir)/config.toml"
+printf '[ledger\nrepo = "acme/papercuts"\n' >"$broken_cfg"
+export PAPERCUT_CONFIG="$broken_cfg"
+rec pc_broken_config "2026-05-09T00:00:00Z" >"$PAPERCUT_SPOOL"
+err_out="$(bash "$flush" --force 2>&1 >/dev/null)"
+rc=$?
+assert_true "unparseable config: exits non-zero" "$([ "$rc" -ne 0 ] && echo 1 || echo 0)"
+assert_true "unparseable config: spool NOT claimed" "$([ -s "$PAPERCUT_SPOOL" ] && echo 1 || echo 0)"
+assert_true "unparseable config: message says config resolution failed" \
+  "$(printf '%s' "$err_out" | grep -q 'config resolution failed' && echo 1 || echo 0)"
+unset PAPERCUT_CONFIG
+
+# --- 19m. the GATE still appends with no config present — a team may want
+#     local-only capture before they set up a ledger. Same runpy hostname
+#     patch as test 20 (the gate derives its profile from the real hostname).
+d="$(new_env_dir)"
+eval "$(env_vars_for "$d")"
+unset PAPERCUT_CONFIG
+gate="$here/papercut_append.py"
+printf '%s' '{"category":"harness_config","severity":"low","title":"no-config append","description":"d"}' \
+  | PAPERCUT_SPOOL="$PAPERCUT_SPOOL" PAPERCUT_LOCK="$PAPERCUT_LOCK" python3 -c '
+import runpy, socket, sys
+socket.gethostname = lambda: "some-laptop"
+gate = sys.argv[1]
+sys.argv = ["papercut_append.py"] + sys.argv[2:]
+runpy.run_path(gate, run_name="__main__")
+' "$gate" --source manual --producer test/no-config --repo dotfiles
+gate_rc=$?
+assert_eq "gate with no config: append accepted" "0" "$gate_rc"
+assert_true "gate with no config: record landed in the spool" \
+  "$(grep -q 'no-config append' "$PAPERCUT_SPOOL" && echo 1 || echo 0)"
 
 # --- 20. end-to-end: papercut_append.py -> spool -> flush -> bare remote, --
 #     byte-identical to what the gate appended.
@@ -843,7 +1081,7 @@ bare="$(make_bare_ledger)"
 clone="$d/ledger-clone"
 clone_ledger "$bare" "$clone"
 export PAPERCUT_LEDGER_DIR="$clone"
-export PAPERCUT_LEDGER_REMOTE="file://$bare"
+export PAPERCUT_CONFIG="$(ledger_config "file://$bare")"
 gate="$here/papercut_append.py"
 # The gate derives its profile ONLY from the real hostname (no env override, by
 # design — see papercut_append.py's detect_machine). To drive the default
@@ -871,7 +1109,7 @@ remote_content="$(ledger_file_on_remote "$bare" "$rec_month")"
 assert_true "e2e: record landed on remote" "$(printf '%s\n' "$remote_content" | grep -qF "$rec_id" && echo 1 || echo 0)"
 remote_line="$(printf '%s\n' "$remote_content" | grep -F "$rec_id")"
 assert_eq "e2e: record byte-identical to what the gate appended" "$appended_line" "$remote_line"
-unset PAPERCUT_LEDGER_DIR PAPERCUT_LEDGER_REMOTE
+unset PAPERCUT_LEDGER_DIR PAPERCUT_CONFIG
 
 # =============================================================================
 # 21. betterment profile + normal run (no --force), non-empty spool -> HOLDS:
