@@ -88,7 +88,7 @@
 #   PAPERCUT_FLUSH_FAIL      default ~/.cache/papercuts/flush-fail
 #   PAPERCUT_LOG             default <spool dir>/flush.log
 #   PAPERCUT_LOG_MAX_BYTES   default 1048576 (rotate to .1 past this size)
-#   PAPERCUT_PUBLISH_CMD     default _papercut_publish_stub (see above)
+#   PAPERCUT_PUBLISH_CMD     default _papercut_publish_git (see above)
 
 set -uo pipefail
 

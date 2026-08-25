@@ -2,8 +2,7 @@
 # Shared prelude for this repo's *.test.sh suites. Source it at the top of
 # every suite, before any other setup:
 #
-#   . "$(dirname "${BASH_SOURCE[0]}")/test_prelude.sh"          # agents/
-#   . "$(dirname "${BASH_SOURCE[0]}")/../test_prelude.sh"       # agents/papercuts/
+#   . "$(dirname "${BASH_SOURCE[0]}")/test_prelude.sh"          # tests/
 #
 # Why: the suites build throwaway git repos, spawn hooks, and shell out to
 # tools that all read ambient state. Whatever the developer's machine happens
@@ -24,9 +23,9 @@ export GIT_CONFIG_SYSTEM=/dev/null
 # anything which starts to — directly, or via a tool's dotfile lookup — can
 # neither read nor scribble on the real home directory.
 #
-# scripts/run-tests.sh sets DOTFILES_TEST_HOME once for the whole run and
-# removes it afterwards. A suite run directly gets its own, left in TMPDIR for
-# the OS to reap.
+# tests/run-tests.sh does not set DOTFILES_TEST_HOME, so every suite creates
+# its own throwaway home here, left in TMPDIR for the OS to reap. Exporting
+# DOTFILES_TEST_HOME first makes the suites share (and keep) one directory.
 #
 # The explicit "$TMPDIR" template is load-bearing on macOS: bare `mktemp -d`
 # resolves its own per-user directory (/var/folders/...) via confstr and
