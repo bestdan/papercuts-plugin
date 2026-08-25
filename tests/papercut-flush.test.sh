@@ -1265,6 +1265,29 @@ ok_mtime_after=$(stat -c %Y "$PAPERCUT_FLUSH_OK" 2>/dev/null || stat -f %m "$PAP
 assert_eq "--review full set: pre-existing success stamp mtime untouched" "$ok_mtime_before" "$ok_mtime_after"
 assert_true "--review full set: no failure stamp written" "$([ ! -f "$PAPERCUT_FLUSH_FAIL" ] && echo 1 || echo 0)"
 
+# =============================================================================
+# 28. forward tolerance: a record with an unknown extra field and a record
+#     with an unknown `type` value both group and publish — quarantine is
+#     structural (unparseable line / non-object / bad ts), never
+#     vocabulary-based (the reader contract in schema/v1.json)
+# =============================================================================
+d="$(new_env_dir)"
+eval "$(env_vars_for "$d")"
+export PAPERCUT_PUBLISH_CMD="$stub_publish"
+export PAPERCUT_TEST_LEDGER="$d/ledger.txt"
+: >"$PAPERCUT_TEST_LEDGER"
+{
+  printf '{"id":"pc_extra_field","v":1,"producer":"test/1","ts":"2026-09-01T00:00:00Z","machine":"default","source":"manual","type":"papercut","category":"harness_config","severity":"low","title":"t","description":"d","repo":"dotfiles","future_field":{"nested":true}}\n'
+  printf '{"id":"pc_unknown_type","v":1,"producer":"test/1","ts":"2026-09-02T00:00:00Z","machine":"default","source":"manual","type":"retraction"}\n'
+} >"$PAPERCUT_SPOOL"
+bash "$flush" --force
+rc=$?
+assert_eq "forward tolerance: flush exits 0" "0" "$rc"
+assert_true "forward tolerance: unknown-extra-field id published" "$(grep -qx pc_extra_field "$PAPERCUT_TEST_LEDGER" && echo 1 || echo 0)"
+assert_true "forward tolerance: unknown-type id published" "$(grep -qx pc_unknown_type "$PAPERCUT_TEST_LEDGER" && echo 1 || echo 0)"
+assert_true "forward tolerance: nothing quarantined" \
+  "$([ -z "$(find "$PAPERCUT_QUARANTINE_DIR" -type f 2>/dev/null)" ] && echo 1 || echo 0)"
+
 echo
 if [ "$fail" -eq 0 ]; then
   echo "ALL PASS"
