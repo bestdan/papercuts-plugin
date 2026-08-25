@@ -84,7 +84,7 @@ PY
 )"
 
 if [ -z "$report" ]; then
-  fail_test "the extractor produced nothing — it is probably broken"
+  fail_test "the test's env-var scan produced nothing — it is probably broken"
   printf '\nSome docs-config-vars tests FAILED.\n'
   exit 1
 fi
@@ -104,13 +104,13 @@ while IFS=$'\t' read -r kind a b; do
   esac
 done <<<"$report"
 
-# Guard the guard: an extractor that found nothing would make both diffs empty
+# Guard the guard: a var scan that found nothing would make both diffs empty
 # and pass vacuously. The pipeline has dozens of these variables, so a low
 # count means the regex or the file walk broke, not that the code got simpler.
 if [ "$code_count" -ge 30 ]; then
   pass "found $code_count env var(s) read under scripts/"
 else
-  fail_test "only $code_count env var(s) found under scripts/ — the extractor is probably broken"
+  fail_test "only $code_count env var(s) found under scripts/ — the test's var scan is probably broken"
 fi
 
 if [ -z "$only_code" ]; then

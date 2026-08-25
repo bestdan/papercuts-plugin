@@ -12,10 +12,10 @@ fixed instead of forgotten.
 > tokens, keys, JWTs, PEM blocks, credentials in URLs, home paths — and a
 > fail-closed denylist on hosts you mark strict. **It is syntactic, not
 > semantic.** It cannot recognize an internal project name, a person, or a
-> business fact. Make the ledger repo **private**, and read
-> [docs/install.md](docs/install.md) before you point this at anything
-> confidential, and [docs/privacy.md](docs/privacy.md) for what the layered
-> scrub does not cover.
+> business fact. Make the ledger repo **private**. Before you point this at
+> anything confidential, read [docs/install.md](docs/install.md) — and
+> [docs/privacy.md](docs/privacy.md) for what the layered scrub does not
+> cover.
 
 ## What a papercut is
 
