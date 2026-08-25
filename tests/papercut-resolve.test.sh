@@ -14,10 +14,10 @@ fail=0
 workdir="$(mktemp -d "${TMPDIR:-/tmp}/papercut-test.XXXXXX")"
 trap 'rm -rf "$workdir"' EXIT
 
-# The gate derives its profile from the REAL hostname, so on an NYC-BETTERMENT*
-# work host it would require a hand-populated denylist this suite has no
-# business depending on. Route every gate call through a wrapper that forces
-# socket.gethostname to a non-work host (same pattern as
+# The gate derives its profile from the REAL hostname, so on a host matching a
+# configured strict_hosts pattern it would require a hand-populated denylist
+# this suite has no business depending on. Route every gate call through a
+# wrapper that forces socket.gethostname to a non-matching host (same pattern as
 # papercut-capture.test.sh / papercut-sweep.test.sh).
 append_default_host="$workdir/append_default_host.sh"
 cat >"$append_default_host" <<EOF

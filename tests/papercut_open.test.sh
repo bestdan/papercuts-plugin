@@ -68,7 +68,7 @@ cat >"$d/ledger/2026-01.jsonl" <<EOF
 {"category":"harness_config","description":"d3","id":"$id_low_open","machine":"default","producer":"p","repo":"dotfiles","severity":"low","source":"manual","title":"low open one","ts":"2026-01-03T00:00:00Z","type":"papercut","v":1}
 EOF
 cat >"$d/ledger/2026-02.jsonl" <<EOF
-{"category":"harness_config","description":"d4","id":"$id_grandfathered","machine":"betterment","producer":"p","severity":"low","source":"manual","title":"grandfathered legacy row","ts":"2026-02-01T00:00:00Z","v":1}
+{"category":"harness_config","description":"d4","id":"$id_grandfathered","machine":"strict","producer":"p","severity":"low","source":"manual","title":"grandfathered legacy row","ts":"2026-02-01T00:00:00Z","v":1}
 {"id":"$res_id","machine":"default","producer":"resolve-cli/1","resolves":"$id_med_resolved","source":"manual","status":"fixed","fix_url":"https://x/y/commit/abc","ts":"2026-02-02T00:00:00Z","type":"resolution","v":1}
 EOF
 cat >"$d/spool.jsonl" <<EOF

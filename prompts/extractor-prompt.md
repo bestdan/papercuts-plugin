@@ -1,9 +1,10 @@
 <!-- WORK_PROFILE_HARD_RULES:BEGIN -->
 
-## Work-profile hard rules (betterment machines only)
+## Work-profile hard rules (strict-profile machines only)
 
-These rules are prepended ONLY when this machine's profile is `betterment`.
-They override anything below that would conflict.
+These rules are prepended ONLY when this machine's profile is `strict` —
+an operator has declared that records from this machine may describe
+confidential work. They override anything below that would conflict.
 
 - Describe every friction point **generically**. Never emit, quote, or
   paraphrase into a record: repository names, file or directory paths, code

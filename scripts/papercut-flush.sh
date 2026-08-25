@@ -85,9 +85,9 @@
 #     BOTH stamps, but NOT the "nothing to do" fast-exit (empty spool, no
 #     stray batches) — --force does not manufacture work.
 #
-# Work-host review-before-publish:
-#   On the betterment profile, a normal (non --force) run HOLDS instead of
-#   publishing — it logs "hold reason=work-host-review" and exits 0, leaving
+# Strict-profile review-before-publish:
+#   On the strict profile, a normal (non --force) run HOLDS instead of
+#   publishing — it logs "hold reason=strict-profile-review" and exits 0, leaving
 #   the spool/stray batches untouched (no claim, no stamp write). --force
 #   bypasses the hold (and the throttle) and publishes as usual. --review
 #   prints pending records (spool + stray spool.batch.*) read-only, without
@@ -128,21 +128,31 @@ FLUSH_FAIL="${PAPERCUT_FLUSH_FAIL:-$CACHE_BASE/flush-fail}"
 LOG="${PAPERCUT_LOG:-$SPOOL_DIR/flush.log}"
 LOG_MAX_BYTES="${PAPERCUT_LOG_MAX_BYTES:-1048576}"
 
-# Machine detection (hoisted so the work-host review-before-publish hold gate
-# can see it before any spool mutation happens; also used by
-# _papercut_publish_git's commit message below). Computed once, early, from
-# the real `hostname` — tests inject an alternate host by putting a fake
-# `hostname` shim earlier on PATH. Case-insensitive and domain-stripped (a
-# lowercased or FQDN form still matches), mirroring papercut_append.py's
-# _is_betterment_host — this now gates publishing itself, not just a log
-# line, so it must classify a work host at least as reliably as the gate does.
-host="$(hostname)"
-host_short="${host%%.*}"
-host_upper="$(printf '%s' "$host_short" | tr '[:lower:]' '[:upper:]')"
-machine="default"
-case "$host_upper" in
-  NYC-BETTERMENT*) machine="betterment" ;;
-esac
+# Machine detection (hoisted so the review-before-publish hold gate can see it
+# before any spool mutation happens; also used by _papercut_publish_git's
+# commit message below). Computed once, early, by calling the SAME resolver
+# papercut_append.py's gate uses (papercut_append.detect_machine), so the two
+# can never disagree about what machine this is — this gates publishing itself,
+# not just a log line.
+#
+# FAIL CLOSED: the machine is treated as "strict" unless detection positively
+# reports "default". Empty output, a crashed python, a missing script — all
+# resolve to strict, so a detection error can never let a strict host
+# auto-publish unreviewed.
+#
+# PAPERCUT_DETECT_CMD overrides the detection (tests use it to force a profile
+# or a failure), same name and semantics as extractor-run.sh's seam.
+if [ -n "${PAPERCUT_DETECT_CMD:-}" ]; then
+  machine=$(bash -c "$PAPERCUT_DETECT_CMD" 2>/dev/null)
+else
+  machine=$(python3 -c '
+import sys
+sys.path.insert(0, sys.argv[1])
+import papercut_append
+print(papercut_append.detect_machine())
+' "$(dirname "$0")" 2>/dev/null)
+fi
+[ "$machine" = "default" ] || machine="strict"
 
 # shellcheck disable=SC2329 # invoked indirectly via _papercut_remote_url_trusted
 _papercut_regex_escape() {
@@ -488,12 +498,13 @@ if [ "$REVIEW" -eq 1 ]; then
   exit 0
 fi
 
-# --- hold: on the betterment profile, a non-force run never publishes ------
-# Auto-flush (e.g. from SessionStart) must not push work-host records to the
-# ledger unreviewed. A human runs --review to audit, then --force to publish
-# the vetted set. The spool/stray batches are left untouched; no stamp write.
-if [ "$machine" = "betterment" ] && [ "$FORCE" -ne 1 ]; then
-  log "hold reason=work-host-review"
+# --- hold: on the strict profile, a non-force run never publishes ----------
+# Auto-flush (e.g. from SessionStart) must not push strict-profile records to
+# the ledger unreviewed. A human runs --review to audit, then --force to
+# publish the vetted set. The spool/stray batches are left untouched; no stamp
+# write.
+if [ "$machine" = "strict" ] && [ "$FORCE" -ne 1 ]; then
+  log "hold reason=strict-profile-review"
   exit 0
 fi
 

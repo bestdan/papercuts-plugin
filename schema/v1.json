@@ -27,7 +27,7 @@
     },
     "machine": {
       "type": "string",
-      "enum": ["default", "betterment"]
+      "enum": ["default", "strict"]
     },
     "source": {
       "type": "string",
@@ -139,7 +139,7 @@
     },
     {
       "if": {
-        "properties": { "machine": { "const": "betterment" } },
+        "properties": { "machine": { "const": "strict" } },
         "required": ["machine"]
       },
       "then": {

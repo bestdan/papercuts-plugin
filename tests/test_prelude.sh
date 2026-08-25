@@ -19,9 +19,14 @@
 export GIT_CONFIG_GLOBAL=/dev/null
 export GIT_CONFIG_SYSTEM=/dev/null
 
-# HOME: no suite legitimately reads it today. Pin it to a throwaway so that
-# anything which starts to — directly, or via a tool's dotfile lookup — can
-# neither read nor scribble on the real home directory.
+# HOME: pin it to a throwaway so that anything which reads it — directly, or
+# via a tool's dotfile lookup — can neither read nor scribble on the real home
+# directory. Two paths under it are load-bearing for the profile resolver:
+# ~/.config/papercuts/strict (the strict marker) and
+# ~/.config/papercuts/config.toml (profile.strict_hosts). A suite that read the
+# developer's real ones would resolve the strict profile on a work laptop and
+# fail there while passing in CI — the exact class of breakage this prelude
+# exists to prevent.
 #
 # tests/run-tests.sh does not set DOTFILES_TEST_HOME, so every suite creates
 # its own throwaway home here, left in TMPDIR for the OS to reap. Exporting
@@ -38,6 +43,12 @@ if [ -z "${DOTFILES_TEST_HOME:-}" ]; then
   export DOTFILES_TEST_HOME
 fi
 export HOME="$DOTFILES_TEST_HOME"
+
+# XDG_CONFIG_HOME: pinning HOME is not enough — the config resolver checks
+# $XDG_CONFIG_HOME/papercuts/config.toml BEFORE ~/.config, so a developer with
+# it exported would still steer every suite at their real config (including
+# profile.strict_hosts). Unset it so the pinned HOME is the only lookup path.
+unset XDG_CONFIG_HOME
 
 # PAPERCUT_*: a developer with these exported (they are a supported way to
 # point the tools at a scratch spool) would otherwise silently steer the

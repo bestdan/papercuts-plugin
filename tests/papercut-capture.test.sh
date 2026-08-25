@@ -6,12 +6,13 @@
 #
 # All state (log, processed-hash dir, lock dir, spool, lock) lives under a
 # per-run temp dir so this suite never touches real ~/.claude. The gate derives
-# its profile from the real hostname (the gate-core change dropped the
-# PAPERCUT_HOSTNAME/PAPERCUT_TEST_MODE override), so this suite forces the
-# non-betterment profile by routing every gate call through a wrapper that
-# monkeypatches socket.gethostname (see $append_default_host below) — otherwise
-# on an NYC-BETTERMENT* work host the gate would require a hand-populated
-# denylist this suite has no business depending on.
+# its profile from the real hostname and the strict marker (the gate-core
+# change dropped the PAPERCUT_HOSTNAME/PAPERCUT_TEST_MODE override), so this
+# suite forces the default profile by routing every gate call through a wrapper
+# that monkeypatches socket.gethostname (see $append_default_host below) —
+# otherwise on a machine matching a configured strict_hosts pattern the gate
+# would require a hand-populated denylist this suite has no business depending
+# on. The prelude's throwaway HOME keeps the marker out of reach.
 
 set -uo pipefail
 
@@ -38,9 +39,9 @@ workdir="$(mktemp -d "${TMPDIR:-/tmp}/papercut-test.XXXXXX")"
 trap 'rm -rf "$workdir"' EXIT
 
 # The gate derives its profile from the REAL hostname (the gate-core change
-# removed the PAPERCUT_HOSTNAME/PAPERCUT_TEST_MODE env override), so on a work
-# host it would resolve to the betterment profile and reject records for lack
-# of a denylist. Because the hook invokes the gate as a SUBPROCESS, tests can't
+# removed the PAPERCUT_HOSTNAME/PAPERCUT_TEST_MODE env override), so on a host
+# matching a configured strict_hosts pattern it would resolve to the strict
+# profile and reject records for lack of a denylist. Because the hook invokes the gate as a SUBPROCESS, tests can't
 # use papercut_append.test.sh's in-process monkeypatch directly — so route the
 # gate through this wrapper, which forces socket.gethostname to a non-work host
 # before runpy-executing the gate. Every gate call in this suite goes through
@@ -628,7 +629,7 @@ STUB
 
 # --- FIX 1: profile detection FAILS CLOSED -> work rules still prepended ----
 # If detection errors (broken command, crashed python), extractor-run.sh must
-# NOT drop the Betterment hard-rules preamble -- omitting it on a work host
+# NOT drop the strict-profile hard-rules preamble -- omitting it on a strict host
 # would let the model emit internal identifiers. Only a positive "default"
 # result strips the rules.
 new_env; dir="$env_dir"
@@ -652,11 +653,11 @@ else
   printf 'ok   (default profile: work rules omitted)\n'
 fi
 
-run_extractor "$dir" "$dir/bin/capture" '{"t":1}' PAPERCUT_DETECT_CMD="echo betterment"
+run_extractor "$dir" "$dir/bin/capture" '{"t":1}' PAPERCUT_DETECT_CMD="echo strict"
 if grep -qF "Work-profile hard rules" "$sp_out" 2>/dev/null; then
-  printf 'ok   (betterment profile: work rules prepended)\n'
+  printf 'ok   (strict profile: work rules prepended)\n'
 else
-  printf 'FAIL (betterment profile dropped the work rules)\n'
+  printf 'FAIL (strict profile dropped the work rules)\n'
   fail=1
 fi
 
@@ -673,7 +674,7 @@ write_sysprompt_capture_stub "$dir/bin/capture" "$sp_out"
 markerless_prompt="$dir/markerless-prompt.md"
 printf '# Extractor prompt\n\nExtract papercuts. No markers in this file.\n' >"$markerless_prompt"
 run_extractor "$dir" "$dir/bin/capture" '{"t":1}' \
-  PAPERCUT_DETECT_CMD="echo betterment" \
+  PAPERCUT_DETECT_CMD="echo strict" \
   PAPERCUT_EXTRACTOR_PROMPT="$markerless_prompt"
 if [ "$ext_rc" -ne 0 ] && printf '%s' "$ext_err" | grep -qF "work-profile rules missing"; then
   printf 'ok   (markerless prompt on work host: fails closed with a bounded error class)\n'

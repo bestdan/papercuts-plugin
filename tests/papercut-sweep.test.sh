@@ -35,9 +35,9 @@ new_env() {
   mkdir -p "$env_dir/anchors" "$env_dir/processed" "$env_dir/projects" "$env_dir/captured"
 }
 
-# The gate derives its profile from the REAL hostname; on a work host it
-# would resolve to the betterment profile and reject records for lack of a
-# denylist. Route the gate through this wrapper (same trick as
+# The gate derives its profile from the REAL hostname; on a host matching a
+# configured strict_hosts pattern it would resolve to the strict profile and
+# reject records for lack of a denylist. Route the gate through this wrapper (same trick as
 # papercut-capture.test.sh) so it's deterministic on any machine.
 append_default_host="$workdir/append_default_host.sh"
 cat >"$append_default_host" <<EOF

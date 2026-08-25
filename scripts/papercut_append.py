@@ -31,16 +31,20 @@ Env overrides (so tests never touch real ~/.claude or ~/.config):
                      without this the advisory is unrecoverable for auto-
                      captured records. See write_review_sidecar() below.
 
-Machine classification (default vs betterment) is derived ONLY from the real
-hostname and has no env override: a real work host can never be downgraded, so
-a model-composed invocation can't flip the profile and slip repo/session_id
-past the betterment scrub gate. Tests inject an alternate hostname by
-monkeypatching socket.gethostname in-process (see papercut_append.test.sh),
-never via an env var a production caller could also set.
+Machine classification (default vs strict) is a MONOTONE UNION of two
+triggers: the real hostname matching a configured profile.strict_hosts glob,
+or the strict marker file existing (see STRICT_MARKER_PATH). Config can only
+ADD strictness; nothing production-settable can remove it, so a real work host
+can never be downgraded and a model-composed invocation can't flip the profile
+to slip repo/session_id past the strict scrub gate. The hostname itself still
+has no env override: tests inject an alternate hostname by monkeypatching
+socket.gethostname in-process (see papercut_append.test.sh), never via an env
+var a production caller could also set.
 """
 
 import argparse
 import fcntl
+import fnmatch
 import ipaddress
 import json
 import os
@@ -63,29 +67,88 @@ FREE_TEXT_KEYS = ("title", "description", "suggested_fix")
 # shred a commit SHA embedded in the URL). It instead gets _redact_url_safe — the
 # same structured-secret patterns MINUS that token rule — so an embedded
 # credential/key/JWT/etc. is still stripped while SHAs survive. A denylist literal
-# in it also fails-closed on betterment / gets redacted on default, same as free
+# in it also fails-closed on strict / gets redacted on default, same as free
 # text, since a URL can carry a codename or repo slug in its path.
 DENYLIST_ONLY_KEYS = ("fix_url",)
 
 
-def _is_betterment_host(name: str) -> bool:
-    """True iff a hostname is a Betterment work host. Case-insensitive and
-    domain-stripped so a lowercased or FQDN form (e.g. "nyc-betterment03454"
-    or "NYC-BETTERMENT03454.local") still matches — a stricter check than
-    main.sh:15 because this one gates data-exfil scrubbing, not aliases, and
-    must not fail open."""
-    return name.split(".", 1)[0].upper().startswith("NYC-BETTERMENT")
+# The strict-profile marker. An operator declares "records from this machine
+# may describe confidential work" with a single `touch`, knowing nothing about
+# their employer or this plugin's config format.
+#
+# HARDCODED, and deliberately unreachable from config, env var, or argument.
+# The monotone-strictness promise is that shared, PR-reviewable config can only
+# ADD strictness, never remove it from a machine whose operator planted this
+# file. A configurable marker PATH breaks exactly that: one config line
+# pointing the key at a nonexistent path makes the canonical marker invisible
+# and the machine silently resolves "default". The deciding argument is
+# POLARITY — a wrong denylist path fails CLOSED (records get rejected), a wrong
+# marker path fails OPEN (records get published). So this one path is the thing
+# nothing production-settable may move. That also rules out deriving it from
+# $XDG_CONFIG_HOME: an environment variable is a production-settable override
+# too. profile.strict_hosts stays configurable because it can only add.
+STRICT_MARKER_PATH = os.path.expanduser("~/.config/papercuts/strict")
+
+_CONFIG_MODULE = None
+
+
+def _config_module():
+    """Import papercut_config.py from THIS file's directory, by path.
+
+    A bare `import papercut_config` would work in production (the gate is run
+    as `python3 .../papercut_append.py`, so its directory is sys.path[0]) but
+    not under the test harness, which executes this file via runpy.run_path —
+    that puts nothing on sys.path. Loading by explicit path works in both."""
+    global _CONFIG_MODULE
+    if _CONFIG_MODULE is None:
+        import importlib.util
+
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "papercut_config.py")
+        spec = importlib.util.spec_from_file_location("papercut_config", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _CONFIG_MODULE = module
+    return _CONFIG_MODULE
 
 
 def detect_machine() -> str:
-    """Return "betterment" iff the real hostname is a work host, else "default".
+    """Return "strict" or "default" — the pipeline's single profile resolver.
 
-    Classification comes ONLY from the real hostname — there is no env override.
-    A work host can never be downgraded to "default", which would fail open and
-    let repo/session_id slip past the betterment scrub gate. Tests exercise the
-    default profile on a work laptop by monkeypatching socket.gethostname
-    in-process (not settable by any production caller); see the test suite."""
-    return "betterment" if _is_betterment_host(socket.gethostname()) else "default"
+    Strict is a MONOTONE UNION of two independent triggers:
+      (a) the real hostname (first dot-separated label, matched
+          case-insensitively) matches any profile.strict_hosts glob from the
+          config file — the fleet convenience, one config shipped to many
+          machines;
+      (b) STRICT_MARKER_PATH exists — the primary operator-facing trigger,
+          which no config can relocate or suppress.
+
+    The hostname comes from the real system call with no production-settable
+    override, so a work host can never be downgraded to "default" (which would
+    fail open and let repo/session_id slip past the strict scrub gate). Tests
+    drive either profile by monkeypatching socket.gethostname in-process; see
+    papercut_append.test.sh.
+
+    FAILS CLOSED. A config file that EXISTS but is broken resolves "strict":
+    a fleet machine that is strict only via strict_hosts must not be silently
+    downgraded by a truncated or mis-edited config (an absent file is not an
+    error — it just means no patterns). Any other unexpected failure also
+    resolves "strict" rather than crashing to the permissive profile.
+
+    papercut-flush.sh and extractor-run.sh both call THIS function rather than
+    growing their own copy, so the three call sites can never disagree about
+    what machine this is."""
+    try:
+        patterns = _config_module().strict_hosts()
+        host = socket.gethostname().split(".", 1)[0].upper()
+        if any(fnmatch.fnmatchcase(host, pattern.upper()) for pattern in patterns):
+            return "strict"
+        # lexists, not exists: a marker that is a dangling symlink is still a
+        # human declaration, and exists() would read it as absent (fail open).
+        if os.path.lexists(STRICT_MARKER_PATH):
+            return "strict"
+        return "default"
+    except Exception:
+        return "strict"
 
 
 def load_schema() -> dict:
@@ -476,25 +539,25 @@ def scrub(
     here, it just means nothing extra gets redacted beyond the built-in
     patterns).
 
-    Work (betterment) profile fails closed, TWICE:
+    Strict profile fails closed, TWICE:
       (a) the denylist file must be present, non-empty after stripping
           comments/blank lines, and not world-readable (mode & 0o004) —
-          otherwise raise ScrubRejected. This is deliberate: work
+          otherwise raise ScrubRejected. This is deliberate: strict-profile
           auto-capture stays inert until the denylist is hand-populated,
           rather than silently shipping unredacted records.
       (b) any record whose PRE-redaction free text OR fix_url matches ANY
           denylist literal raises ScrubRejected for the WHOLE record — it is
           rejected outright, not redacted, so a match can't leak via
           partial context around the redaction.
-    Built-in pattern redaction still runs on the work profile after the
+    Built-in pattern redaction still runs on the strict profile after the
     denylist checks pass.
     """
     record = dict(record)
 
-    if profile == "betterment":
+    if profile == "strict":
         if not os.path.isfile(DENYLIST_PATH):
             raise ScrubRejected(
-                f"work profile requires a denylist at {DENYLIST_PATH}, none found"
+                f"strict profile requires a denylist at {DENYLIST_PATH}, none found"
             )
         mode = os.stat(DENYLIST_PATH).st_mode
         if mode & 0o004:
@@ -522,7 +585,7 @@ def scrub(
     # default profile: built-in redaction always (FREE_TEXT_KEYS via
     # _redact_builtins, DENYLIST_ONLY_KEYS via the SHA-preserving
     # _redact_url_safe); denylist redaction is best-effort (the file may not
-    # exist at all on a non-work machine) and applies to both key sets.
+    # exist at all on a default-profile machine) and applies to both key sets.
     literals = _read_denylist(DENYLIST_PATH)
     for key in FREE_TEXT_KEYS:
         if key in record:
@@ -576,7 +639,7 @@ def construct(descriptive: dict, args: argparse.Namespace, machine: str) -> dict
         record["session_id"] = args.session_id
     if args.repo is not None:
         record["repo"] = args.repo
-    if machine == "betterment":
+    if machine == "strict":
         record.pop("session_id", None)
         record.pop("repo", None)
     return record
