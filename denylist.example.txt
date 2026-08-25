@@ -1,0 +1,29 @@
+# Format doc for the papercuts scrub gate's per-machine denylist.
+#
+# This is an EXAMPLE only — it ships in the repo so the format is
+# documented, but it contains no real entries.
+#
+# The REAL denylist lives at ~/.config/papercuts/denylist.txt (override via
+# $PAPERCUT_DENYLIST), must be mode 0600, and is NEVER committed anywhere —
+# by design, it names the very internal things (repo names, project
+# codenames, ticket prefixes, teammate names, hostnames, etc.) that must
+# never leak into a papercut record, so committing it would defeat its own
+# purpose.
+#
+# Rules:
+#   - One case-insensitive literal per line (plain substring match, not a
+#     regex).
+#   - Blank lines are ignored.
+#   - Lines starting with "#" are comments and are ignored.
+#   - On the default profile, a match is redacted to "[redacted]".
+#   - On the work (betterment) profile, this file is REQUIRED: missing,
+#     empty (or all comments/blank), or world-readable (mode & 0o004) causes
+#     the gate to reject every record outright — work auto-capture stays
+#     inert until you hand-populate this file. A pre-redaction match on the
+#     work profile also rejects the whole record (it is not redacted).
+#
+# Illustrative (fake) examples — uncomment and replace with your own real,
+# sensitive literals in the actual ~/.config/papercuts/denylist.txt:
+#
+# project-nightingale
+# acme-payments-service

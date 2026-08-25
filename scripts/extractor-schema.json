@@ -1,0 +1,44 @@
+{
+  "$comment": "Structured-output schema for `claude -p --json-schema`. The CLI requires a top-level type of 'object' (it wraps the schema as a tool's input_schema), so the array of papercut records is nested under 'records' rather than being the top-level type itself. The extractor script reads back .structured_output.records. Each item carries exactly the 5 descriptive fields papercut_append.py accepts on stdin; every other field (id, v, producer, ts, machine, source, session_id, repo) is populated downstream by the gate, never by the model.",
+  "type": "object",
+  "properties": {
+    "records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "category": {
+            "type": "string",
+            "enum": [
+              "harness_config",
+              "instruction_gap",
+              "model_behavior",
+              "project_dx",
+              "should_be_script"
+            ]
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["low", "medium", "high"]
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "suggested_fix": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": ["category", "severity", "title", "description"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["records"],
+  "additionalProperties": false
+}

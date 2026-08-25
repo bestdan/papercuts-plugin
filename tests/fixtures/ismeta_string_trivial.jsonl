@@ -1,0 +1,6 @@
+{"type":"user","message":{"role":"user","content":"isMeta injected context line one."},"isMeta":true,"sessionId":"synthetic-ismeta","timestamp":"2026-01-01T00:00:00Z"}
+{"type":"user","message":{"role":"user","content":"isMeta injected context line two."},"isMeta":true,"sessionId":"synthetic-ismeta","timestamp":"2026-01-01T00:01:00Z"}
+{"type":"user","message":{"role":"user","content":"isMeta injected context line three."},"isMeta":true,"sessionId":"synthetic-ismeta","timestamp":"2026-01-01T00:02:00Z"}
+{"type":"user","message":{"role":"user","content":"isMeta injected context line four."},"isMeta":true,"sessionId":"synthetic-ismeta","timestamp":"2026-01-01T00:03:00Z"}
+{"type":"user","message":{"role":"user","content":"isMeta injected context line five."},"isMeta":true,"sessionId":"synthetic-ismeta","timestamp":"2026-01-01T00:04:00Z"}
+{"type":"user","message":{"role":"user","content":"isMeta injected context line six."},"isMeta":true,"sessionId":"synthetic-ismeta","timestamp":"2026-01-01T00:05:00Z"}

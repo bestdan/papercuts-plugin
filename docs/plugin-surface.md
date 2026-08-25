@@ -49,7 +49,14 @@ shape as `settings.json` hooks:
 {
   "hooks": {
     "SessionStart": [
-      { "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/probe.sh SessionStart" }] }
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/probe.sh SessionStart"
+          }
+        ]
+      }
     ]
   }
 }
@@ -63,12 +70,12 @@ it back correctly.
 All four events the pipeline needs **do** reach a plugin. Verified by observing
 one log entry per event.
 
-| Event                | Reaches a plugin | How it was triggered                            |
-| -------------------- | ---------------- | ----------------------------------------------- |
-| `SessionStart`       | Yes              | Starting the probe session                      |
-| `SessionEnd`         | Yes              | Exiting the session                             |
-| `PostToolUseFailure` | Yes              | Asking the agent to run `cat /nonexistent`      |
-| `Notification`       | Yes              | A permission prompt                             |
+| Event                | Reaches a plugin | How it was triggered                       |
+| -------------------- | ---------------- | ------------------------------------------ |
+| `SessionStart`       | Yes              | Starting the probe session                 |
+| `SessionEnd`         | Yes              | Exiting the session                        |
+| `PostToolUseFailure` | Yes              | Asking the agent to run `cat /nonexistent` |
+| `Notification`       | Yes              | A permission prompt                        |
 
 **`Notification` is the one that mattered.** It is absent from the published hook
 event list, so it had to be tested rather than assumed. `CwdChanged` is likewise
@@ -83,11 +90,11 @@ an agent tool call and does not fire it. The agent must actually invoke the tool
 
 All three resolve inside a hook command:
 
-| Variable                 | Value observed                                          |
-| ------------------------ | ------------------------------------------------------- |
-| `${CLAUDE_PLUGIN_ROOT}`  | the installed plugin's own directory                    |
-| `${CLAUDE_PLUGIN_DATA}`  | `~/.claude/plugins/data/papercut-probe-inline`          |
-| `${CLAUDE_PROJECT_DIR}`  | the project root                                        |
+| Variable                | Value observed                                 |
+| ----------------------- | ---------------------------------------------- |
+| `${CLAUDE_PLUGIN_ROOT}` | the installed plugin's own directory           |
+| `${CLAUDE_PLUGIN_DATA}` | `~/.claude/plugins/data/papercut-probe-inline` |
+| `${CLAUDE_PROJECT_DIR}` | the project root                               |
 
 `CLAUDE_PLUGIN_ROOT` resolved to the plugin directory while `PWD` was the user's
 project directory, which is the property that replaces the hardcoded

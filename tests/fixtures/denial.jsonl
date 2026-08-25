@@ -1,0 +1,2 @@
+{"type":"user","message":{"role":"user","content":"Delete the old backup directory."},"permissionMode":"default","sessionId":"synthetic-session-denial","timestamp":"2026-01-01T00:00:00Z"}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_9101","content":"The user doesn't want to proceed with this tool use."}]},"toolDenialKind":"user-rejected"}
