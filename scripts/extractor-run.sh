@@ -38,7 +38,7 @@
 #                             reported as a (false) high-severity papercut about
 #                             extractor instructions leaking into a live session
 #                             (pc_87428e8e, bestdan/dotfiles#304). Verify by
-#                             running both of these from agents/papercuts/ —
+#                             running both of these from this repo's prompts/ —
 #                             append answers yes, replace answers no. Two
 #                             separate runs, not one: a brace expansion like
 #                             --{append-,}system-prompt-file puts both flags on
