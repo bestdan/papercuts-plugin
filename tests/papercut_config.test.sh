@@ -1,0 +1,263 @@
+#!/usr/bin/env bash
+# Tests for papercut_config.py — the single config resolver: file location
+# precedence, shell-eval-safe output, the always-resolves contract (exit 0
+# with defaults + status lines on absent/partial config), and the hard-error
+# cases (unparseable config, pre-3.11 interpreter).
+# Run:
+#   bash tests/papercut_config.test.sh
+
+set -uo pipefail
+
+. "$(dirname "${BASH_SOURCE[0]}")/test_prelude.sh"
+
+resolver="$(dirname "$0")/../scripts/papercut_config.py"
+fail=0
+workdir="$(mktemp -d "${TMPDIR:-/tmp}/papercut-test.XXXXXX")"
+trap 'rm -rf "$workdir"' EXIT
+
+# The prelude pins HOME to a throwaway, but XDG_CONFIG_HOME could still leak
+# in from the developer's environment and steer the fallback tests.
+unset XDG_CONFIG_HOME
+unset PAPERCUT_CONFIG
+
+next_dir() {
+  local d
+  d="$workdir/$RANDOM$RANDOM"
+  mkdir -p "$d"
+  printf '%s' "$d"
+}
+
+assert_eq() {
+  local desc="$1" expected="$2" actual="$3"
+  if [ "$expected" = "$actual" ]; then
+    printf 'ok   (%s)\n' "$desc"
+  else
+    printf 'FAIL (%s: expected %q, got %q)\n' "$desc" "$expected" "$actual"
+    fail=1
+  fi
+}
+
+assert_contains() {
+  local desc="$1" haystack="$2" needle="$3"
+  if printf '%s' "$haystack" | grep -qF -- "$needle"; then
+    printf 'ok   (%s)\n' "$desc"
+  else
+    printf 'FAIL (%s: expected to find %q in %q)\n' "$desc" "$needle" "$haystack"
+    fail=1
+  fi
+}
+
+assert_not_contains() {
+  local desc="$1" haystack="$2" needle="$3"
+  if printf '%s' "$haystack" | grep -qF -- "$needle"; then
+    printf 'FAIL (%s: did not expect to find %q in %q)\n' "$desc" "$needle" "$haystack"
+    fail=1
+  else
+    printf 'ok   (%s)\n' "$desc"
+  fi
+}
+
+# Eval the resolver's stdout in a clean subshell and print one requested
+# variable — this exercises the shell-eval-safety claim for real, rather
+# than grepping for a substring of the raw output.
+eval_var() {
+  local output="$1" var="$2"
+  (
+    eval "$output"
+    printf '%s' "${!var}"
+  )
+}
+
+# --- 1. precedence: $PAPERCUT_CONFIG wins over $XDG_CONFIG_HOME ---
+d="$(next_dir)"
+mkdir -p "$d/xdg/papercuts"
+cat >"$d/explicit.toml" <<'EOF'
+[ledger]
+repo = "acme/from-explicit"
+EOF
+cat >"$d/xdg/papercuts/config.toml" <<'EOF'
+[ledger]
+repo = "acme/from-xdg"
+EOF
+out="$(PAPERCUT_CONFIG="$d/explicit.toml" XDG_CONFIG_HOME="$d/xdg" python3 "$resolver")"
+rc=$?
+assert_eq "PAPERCUT_CONFIG precedence: exit 0" "0" "$rc"
+assert_eq "PAPERCUT_CONFIG wins over XDG_CONFIG_HOME" \
+  "acme/from-explicit" "$(eval_var "$out" PAPERCUT_CONFIG_LEDGER_REPO)"
+
+# --- 2. precedence: $XDG_CONFIG_HOME wins over ~/.config ---
+mkdir -p "$HOME/.config/papercuts"
+cat >"$HOME/.config/papercuts/config.toml" <<'EOF'
+[ledger]
+repo = "acme/from-home"
+EOF
+out="$(XDG_CONFIG_HOME="$d/xdg" python3 "$resolver")"
+rc=$?
+assert_eq "XDG fallback: exit 0" "0" "$rc"
+assert_eq "XDG_CONFIG_HOME wins over ~/.config when PAPERCUT_CONFIG unset" \
+  "acme/from-xdg" "$(eval_var "$out" PAPERCUT_CONFIG_LEDGER_REPO)"
+
+# --- 3. precedence: ~/.config/papercuts/config.toml when XDG unset too ---
+out="$(python3 "$resolver")"
+rc=$?
+assert_eq "~/.config fallback: exit 0" "0" "$rc"
+assert_eq "~/.config/papercuts/config.toml used when both env vars unset" \
+  "acme/from-home" "$(eval_var "$out" PAPERCUT_CONFIG_LEDGER_REPO)"
+rm -rf "$HOME/.config/papercuts"
+
+# --- 4. full config: all three keys come back as eval-safe lines ---
+d="$(next_dir)"
+cat >"$d/config.toml" <<'EOF'
+[ledger]
+repo = "acme/papercuts"
+host = "git.example.com"
+dir = "/srv/papercuts clone"
+EOF
+out="$(PAPERCUT_CONFIG="$d/config.toml" python3 "$resolver")"
+rc=$?
+assert_eq "full config: exit 0" "0" "$rc"
+assert_eq "full config: ledger.repo" \
+  "acme/papercuts" "$(eval_var "$out" PAPERCUT_CONFIG_LEDGER_REPO)"
+assert_eq "full config: ledger.host" \
+  "git.example.com" "$(eval_var "$out" PAPERCUT_CONFIG_LEDGER_HOST)"
+assert_eq "full config: ledger.dir survives eval with an embedded space" \
+  "/srv/papercuts clone" "$(eval_var "$out" PAPERCUT_CONFIG_LEDGER_DIR)"
+assert_eq "full config: ledger status is ok" \
+  "ok" "$(eval_var "$out" PAPERCUT_CONFIG_LEDGER)"
+
+# --- 5. defaults: host and dir fall back when absent from config ---
+d="$(next_dir)"
+cat >"$d/config.toml" <<'EOF'
+[ledger]
+repo = "acme/papercuts"
+EOF
+out="$(PAPERCUT_CONFIG="$d/config.toml" python3 "$resolver")"
+assert_eq "defaults: ledger.host defaults to github.com" \
+  "github.com" "$(eval_var "$out" PAPERCUT_CONFIG_LEDGER_HOST)"
+assert_eq "defaults: ledger.dir defaults to ~/src/papercuts (tilde expanded)" \
+  "$HOME/src/papercuts" "$(eval_var "$out" PAPERCUT_CONFIG_LEDGER_DIR)"
+
+# --- 6. hostile value: eval must not execute embedded shell syntax ---
+d="$(next_dir)"
+cat >"$d/config.toml" <<EOF
+[ledger]
+repo = "acme/papercuts"
+dir = "$d/\$(touch $d/pwned)'; touch $d/pwned2 #"
+EOF
+out="$(PAPERCUT_CONFIG="$d/config.toml" python3 "$resolver")"
+rc=$?
+assert_eq "hostile value: exit 0" "0" "$rc"
+got_dir="$(eval_var "$out" PAPERCUT_CONFIG_LEDGER_DIR)"
+assert_contains "hostile value: literal \$( preserved through eval" "$got_dir" '$(touch'
+if [ ! -e "$d/pwned" ] && [ ! -e "$d/pwned2" ]; then
+  printf 'ok   (hostile value: eval executed nothing)\n'
+else
+  printf 'FAIL (hostile value: eval executed embedded command)\n'
+  fail=1
+fi
+
+# --- 7. parseable config with no ledger.repo: status missing, exit 0 ---
+d="$(next_dir)"
+cat >"$d/config.toml" <<'EOF'
+[ledger]
+host = "github.com"
+EOF
+out="$(PAPERCUT_CONFIG="$d/config.toml" python3 "$resolver")"
+rc=$?
+assert_eq "repo absent: exit 0" "0" "$rc"
+assert_eq "repo absent: ledger status is missing, not ok" \
+  "missing" "$(eval_var "$out" PAPERCUT_CONFIG_LEDGER)"
+assert_eq "repo absent: repo key present but empty" \
+  "" "$(eval_var "$out" PAPERCUT_CONFIG_LEDGER_REPO)"
+
+# --- 8. no config file anywhere: exit 0 with usable defaults ---
+out="$(python3 "$resolver")"
+rc=$?
+assert_eq "absent config: exit 0" "0" "$rc"
+assert_eq "absent config: ledger status is missing" \
+  "missing" "$(eval_var "$out" PAPERCUT_CONFIG_LEDGER)"
+assert_eq "absent config: host default emitted" \
+  "github.com" "$(eval_var "$out" PAPERCUT_CONFIG_LEDGER_HOST)"
+assert_eq "absent config: dir default emitted" \
+  "$HOME/src/papercuts" "$(eval_var "$out" PAPERCUT_CONFIG_LEDGER_DIR)"
+
+# --- 9. PAPERCUT_CONFIG pointing at a missing file: absent, not fallback ---
+d="$(next_dir)"
+mkdir -p "$d/xdg/papercuts"
+cat >"$d/xdg/papercuts/config.toml" <<'EOF'
+[ledger]
+repo = "acme/should-not-be-read"
+EOF
+out="$(PAPERCUT_CONFIG="$d/nope.toml" XDG_CONFIG_HOME="$d/xdg" python3 "$resolver")"
+rc=$?
+assert_eq "explicit-but-missing config: exit 0" "0" "$rc"
+assert_eq "explicit-but-missing config: does not fall through to XDG" \
+  "missing" "$(eval_var "$out" PAPERCUT_CONFIG_LEDGER)"
+assert_not_contains "explicit-but-missing config: XDG repo not read" \
+  "$out" "acme/should-not-be-read"
+
+# --- 10. unparseable config: hard error, nothing usable on stdout ---
+d="$(next_dir)"
+cat >"$d/config.toml" <<'EOF'
+[ledger
+repo = "acme/papercuts"
+EOF
+out="$(PAPERCUT_CONFIG="$d/config.toml" python3 "$resolver" 2>"$d/stderr")"
+rc=$?
+if [ "$rc" -ne 0 ]; then
+  printf 'ok   (unparseable config: non-zero exit)\n'
+else
+  printf 'FAIL (unparseable config: expected non-zero exit, got 0)\n'
+  fail=1
+fi
+assert_eq "unparseable config: stdout empty" "" "$out"
+assert_contains "unparseable config: stderr names the file" "$(cat "$d/stderr")" "$d/config.toml"
+
+# --- 11. wrongly-typed value: also a hard error, not a silent default ---
+d="$(next_dir)"
+cat >"$d/config.toml" <<'EOF'
+[ledger]
+repo = 123
+EOF
+rc_typed="$(PAPERCUT_CONFIG="$d/config.toml" python3 "$resolver" >/dev/null 2>&1; echo $?)"
+if [ "$rc_typed" -ne 0 ]; then
+  printf 'ok   (wrongly-typed ledger.repo: non-zero exit)\n'
+else
+  printf 'FAIL (wrongly-typed ledger.repo: expected non-zero exit, got 0)\n'
+  fail=1
+fi
+
+# --- 12. pre-3.11 interpreter: clear message naming the requirement ---
+# No 3.10 interpreter is guaranteed on the machine, so fake the version the
+# script sees: run its source under this python3 with sys.version_info
+# replaced, before any of its code (including the tomllib import) runs.
+d="$(next_dir)"
+err="$(
+  python3 - "$resolver" 2>&1 >/dev/null <<'PYEOF'
+import sys
+path = sys.argv[1]
+sys.version_info = (3, 10, 4)
+with open(path, encoding="utf-8") as f:
+    source = f.read()
+try:
+    exec(compile(source, path, "exec"), {"__name__": "__main__"})
+except SystemExit as exc:
+    sys.exit(exc.code)
+PYEOF
+)"
+rc=$?
+if [ "$rc" -ne 0 ]; then
+  printf 'ok   (pre-3.11 interpreter: non-zero exit)\n'
+else
+  printf 'FAIL (pre-3.11 interpreter: expected non-zero exit, got 0)\n'
+  fail=1
+fi
+assert_contains "pre-3.11 interpreter: message names the 3.11 requirement" "$err" "3.11"
+
+echo
+if [ "$fail" -eq 0 ]; then
+  echo "papercut_config tests: PASS"
+  exit 0
+fi
+echo "papercut_config tests: FAIL"
+exit 1
