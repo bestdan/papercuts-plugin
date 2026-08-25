@@ -3,8 +3,9 @@
 This contract binds every consumer of papercut records — the shipped readers
 and any reader anyone writes later. It is also stated in `schema/v1.json`'s
 `$comment` and pinned by tests (the `forward tolerance:` assertions in
-`tests/papercut_open.test.sh` and `tests/papercut-flush.test.sh`). Final home:
-the schema reference (task 6c); this file folds into it.
+`tests/papercut_open.test.sh` and `tests/papercut-flush.test.sh`).
+[schema.md](schema.md) documents the record shape itself and defers to this
+file for the contract.
 
 ## Why a contract, not just tolerant code
 

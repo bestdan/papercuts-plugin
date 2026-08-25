@@ -45,6 +45,9 @@ files=(
   docs/schema-compat.md
   docs/privacy.md
   docs/configuration.md
+  docs/operations.md
+  docs/architecture.md
+  docs/schema.md
   LICENSE
   CONTRIBUTING.md
 )

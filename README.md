@@ -161,6 +161,13 @@ Then run `/papercuts:papercut` in a session to log your first record by hand.
   confidential work.
 - [docs/configuration.md](docs/configuration.md) — every config key and
   environment variable, with defaults.
+- [docs/operations.md](docs/operations.md) — the runbook: inspect the spool,
+  recover a quarantined line or a stale batch, force a flush or a sweep, read
+  the logs.
+- [docs/architecture.md](docs/architecture.md) — what each component owns, the
+  decisions with their reasons, and the sweep's residual risk.
+- [docs/schema.md](docs/schema.md) — the record shape field by field, the
+  resolution statuses, and the fold that computes the open set.
 - [docs/schema-compat.md](docs/schema-compat.md) — the reader contract every
   consumer of the records is bound by.
 - [CONTRIBUTING.md](CONTRIBUTING.md) — dev setup and the test requirement for
