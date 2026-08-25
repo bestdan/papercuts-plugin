@@ -1089,11 +1089,19 @@ assert_eq "no config key relocates the marker: still strict" \
   "strict" "$(detect_with "$d" "$relocate_config" some-laptop)"
 
 # A BROKEN config must not hide the marker either — detect_machine fails
-# closed: unreadable patterns become unmatchable, the marker is still checked.
+# closed: a config that exists but cannot be read resolves strict outright.
 broken_config="$d/config-broken.toml"
 printf '[profile\nstrict_hosts = ["WORK-*"]\n' >"$broken_config"
 assert_eq "broken config still sees the marker (fails closed)" \
   "strict" "$(detect_with "$d" "$broken_config" some-laptop)"
+
+# The same broken config with NO marker also resolves strict — a fleet machine
+# that is strict only via strict_hosts must not be silently downgraded by a
+# truncated or mis-edited config. (An ABSENT config is not an error: that is
+# the ordinary no-patterns case, covered by section 19.)
+no_marker="$(next_dir)"
+assert_eq "broken config, no marker: fails closed to strict" \
+  "strict" "$(detect_with "$no_marker" "$broken_config" some-laptop)"
 
 # --- 21. the SHIPPED schema carries no employer-named value and no `reporter`
 # property. The employer name is this migration's residue: the gate can never

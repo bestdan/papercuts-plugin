@@ -128,18 +128,17 @@ def detect_machine() -> str:
     drive either profile by monkeypatching socket.gethostname in-process; see
     papercut_append.test.sh.
 
-    FAILS CLOSED. A broken config makes the patterns unmatchable but must not
-    hide the marker, so the marker is still checked. Any other unexpected
-    failure resolves "strict" rather than crashing to the permissive profile.
+    FAILS CLOSED. A config file that EXISTS but is broken resolves "strict":
+    a fleet machine that is strict only via strict_hosts must not be silently
+    downgraded by a truncated or mis-edited config (an absent file is not an
+    error — it just means no patterns). Any other unexpected failure also
+    resolves "strict" rather than crashing to the permissive profile.
 
     papercut-flush.sh and extractor-run.sh both call THIS function rather than
     growing their own copy, so the three call sites can never disagree about
     what machine this is."""
     try:
         patterns = _config_module().strict_hosts()
-    except Exception:
-        patterns = []
-    try:
         host = socket.gethostname().split(".", 1)[0].upper()
         if any(fnmatch.fnmatchcase(host, pattern.upper()) for pattern in patterns):
             return "strict"

@@ -147,10 +147,10 @@ if [ -n "${PAPERCUT_DETECT_CMD:-}" ]; then
 else
   machine=$(python3 -c '
 import sys
-sys.path.insert(0, "'"$(dirname "$0")"'")
+sys.path.insert(0, sys.argv[1])
 import papercut_append
 print(papercut_append.detect_machine())
-' 2>/dev/null)
+' "$(dirname "$0")" 2>/dev/null)
 fi
 [ "$machine" = "default" ] || machine="strict"
 

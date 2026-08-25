@@ -27,8 +27,11 @@ Keys read under [ledger]:
 
 Keys read under [profile]:
   strict_hosts -- array of glob patterns, default empty. A machine whose
-                real hostname matches any pattern resolves to the strict
-                profile (papercut_append.detect_machine). Emitted as
+                hostname matches any pattern resolves to the strict profile
+                (papercut_append.detect_machine). Matching is against the
+                hostname's FIRST dot-separated label only, case-insensitively
+                -- write "work-*", not an FQDN glob like "work-*.example.com",
+                which contains a dot and can therefore never match. Emitted as
                 PAPERCUT_CONFIG_PROFILE_STRICT_HOSTS, one pattern per line
                 (a newline separator is safe because a hostname pattern can
                 never contain one, and shlex.quote keeps it eval-safe).
