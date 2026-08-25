@@ -145,7 +145,29 @@ assert_eq "missing ledger clone: still exits 0" "0" "$rc"
 assert_contains "missing ledger clone: stderr note present" "$(cat "$workdir"/missing_ledger_err)" "no ledger files found"
 assert_contains "missing ledger clone: spool row still shown" "$out" "spool open one"
 
-# --- 5. no sources at all: empty, deterministic output, exit 0 ---
+# --- 5. forward tolerance: unknown extra field ignored, unknown `type`
+# skipped — neither errors (the reader contract in schema/v1.json) ---
+tol_dir="$(next_dir)"
+mkdir -p "$tol_dir/ledger"
+id_extra_field="pc_00000000-0000-4000-8000-000000000006"
+id_unknown_type="pc_00000000-0000-4000-8000-000000000007"
+cat >"$tol_dir/ledger/2026-03.jsonl" <<EOF
+{"category":"harness_config","description":"d6","future_field":{"nested":true},"id":"$id_extra_field","machine":"default","producer":"p","repo":"dotfiles","severity":"low","source":"manual","title":"extra field row","ts":"2026-03-01T00:00:00Z","type":"papercut","v":1}
+{"id":"$id_unknown_type","machine":"default","producer":"p","source":"manual","title":"unknown type row","ts":"2026-03-02T00:00:00Z","type":"retraction","v":1}
+EOF
+out="$(PAPERCUT_LEDGER_DIR="$tol_dir" PAPERCUT_SPOOL="$tol_dir/no-spool.jsonl" python3 "$viewer" 2>"$workdir"/tolerance_err)"
+rc=$?
+assert_eq "forward tolerance: exits 0" "0" "$rc"
+assert_eq "forward tolerance: no stderr noise" "" "$(cat "$workdir"/tolerance_err)"
+assert_contains "forward tolerance: unknown-extra-field row still open" "$out" "extra field row"
+assert_not_contains "forward tolerance: unknown-type row skipped" "$out" "unknown type row"
+assert_contains "forward tolerance: only the papercut counted" "$out" "1 open papercut(s)"
+
+# --json must round-trip the unknown field, not strip it
+out="$(PAPERCUT_LEDGER_DIR="$tol_dir" PAPERCUT_SPOOL="$tol_dir/no-spool.jsonl" python3 "$viewer" --json 2>/dev/null)"
+assert_contains "forward tolerance: --json preserves the unknown field" "$out" "future_field"
+
+# --- 6. no sources at all: empty, deterministic output, exit 0 ---
 empty_dir="$(next_dir)"
 out="$(PAPERCUT_LEDGER_DIR="$empty_dir/nope" PAPERCUT_SPOOL="$empty_dir/spool.jsonl" python3 "$viewer" 2>/dev/null)"
 rc=$?
