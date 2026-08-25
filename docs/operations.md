@@ -165,6 +165,15 @@ pretty-printed record at a time (through `jq` when it is installed, otherwise
 partial-approval mechanism: `--force` publishes everything pending, so discard
 anything you do not want published before running it.
 
+To discard a record, delete its whole line from `spool.jsonl` (or from the
+stray `spool.batch.*` file that holds it) while no session and no flush is
+running. This does not contradict the warning in
+[Recover quarantined lines](#recover-quarantined-lines): that warning is about
+**writing** records into the spool by hand, which bypasses the gate's
+validate/scrub pipeline — deleting a whole line only removes content, and the
+shared lock is held only across an append or a batch claim, so an idle-time
+edit races with nothing.
+
 If review turns up something that should never have survived capture, the fix
 is not to keep reviewing more carefully — add the offending literal to the
 denylist so the gate catches it next time:
@@ -210,8 +219,10 @@ tail -50 ~/.claude/papercuts/flush.log
 
 Both files are safe to delete at any time; nothing reads them back.
 
-Lines worth recognizing: `skip reason=…` (capture declined a session, with the
-reason — `quiet-window`, `already-processed`, `extractor-failed`, and others),
+Lines worth recognizing: `skip reason=…` (a session was declined, with the
+reason — capture emits `trivial`, `unchanged-transcript`, `extractor-failed`,
+and others; the sweep, writing to the same log, emits `quiet-window` and its
+own set),
 `claimed batch=…` / `published and removed batch=…` (a normal flush),
 `retaining batch=…` (a publish failed and the batch will be retried), `hold
 reason=…` (nothing was claimed, with the reason), and `scrub-review runs=N`

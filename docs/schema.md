@@ -50,8 +50,8 @@ record.
 | `status`        | descriptive | one of five values, [below](#the-five-resolution-statuses)                                      | Resolution only, required.                                                                                                   |
 | `fix_url`       | descriptive | `http(s)://…`, ≤ 300 chars                                                                      | Resolution only, optional in the schema — but required by the CLI for two statuses. Scrubbed differently; see below.         |
 
-Six fields are required on every record regardless of type: `id`, `v`,
-`producer`, `ts`, `machine`, `source`, plus `type` itself. `additionalProperties`
+Seven fields are required on every record: `id`, `v`, `producer`, `ts`,
+`machine`, `source`, and `type`. `additionalProperties`
 is `false`, which — per the reader contract — constrains the gate's own records
 at append time and nothing else.
 

@@ -12,10 +12,12 @@ Everything else is detail around these.
 
 **1. The gate is the only writer.** `scripts/papercut_append.py` is the sole
 process that appends to the spool. Every path in — the automatic extractor, the
-manual skill, the resolve CLI — funnels through it, and each of them passes
-**descriptive fields only**. The gate constructs every controlled field itself
-(`id`, `v`, `type`, `producer`, `ts`, `machine`, `source`, `session_id`,
-`repo`), so a caller cannot supply them and model output cannot spoof them; see
+manual skill, the resolve CLI — funnels through it, and the record content on
+**stdin carries descriptive fields only**. The controlled fields never come
+from record content: the gate constructs `id`, `v`, `ts`, and `machine`
+entirely itself, and takes the provenance context (`--type`, `--producer`,
+`--source`, `--session-id`, `--repo`) as arguments from the trusted CLI
+wrappers — so model output cannot spoof any of them; see
 [schema.md](schema.md#controlled-and-descriptive-fields). Its pipeline is fixed:
 **construct → validate → scrub → revalidate → append.** Revalidation is not
 ceremony — a redaction marker changes a field's length, so the record that
