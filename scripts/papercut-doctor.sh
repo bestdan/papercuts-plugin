@@ -248,8 +248,8 @@ else
   fail claude-path "claude is not on PATH"
 fi
 
-# --- the permission entry the user must add themselves ----------------------
-printf '\nAdd this to permissions.allow in your own settings.json (a plugin must\nnot grant it silently) — the path is this install, resolved:\n\n'
+# --- the fallback permission entry, printed resolved ------------------------
+printf '\nThe /papercuts:papercut skill authorizes its own append call for the turn\nit runs in (allowed-tools), so a permission rule is usually unnecessary. If\na capture still stops on a permission prompt, add this to permissions.allow\nin your own settings.json — the path is this install, resolved:\n\n'
 printf '  "Bash(python3 %s/papercut_append.py:*)"\n\n' "$SCRIPT_DIR"
 printf 'See docs/install.md for the sandbox write-allowlist entries too.\n'
 

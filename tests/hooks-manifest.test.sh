@@ -74,7 +74,9 @@ fi
 # SessionStart -> flush --hook and sweep, SessionEnd -> capture.
 expect_entry() {
   # expect_entry <event> <substring>
-  if printf '%s\n' "$commands" | grep -qF "$1	$2"; then
+  # grep -qF via a here-string, not a pipe: -q exits at the first match, and
+  # under pipefail a SIGPIPE'd printf turns a successful match into a failure.
+  if grep -qF "$1	$2" <<<"$commands"; then
     pass "$1 declares $2"
   else
     fail_test "$1 declares $2"
@@ -87,7 +89,7 @@ expect_entry SessionStart "$prefix"scripts/papercut-sweep.sh
 expect_entry SessionEnd "$prefix"scripts/papercut-capture.sh
 
 # The SessionStart flush entry must go through the fail-silent wrapper.
-if printf '%s\n' "$commands" | grep -qF "papercut-flush.sh --hook"; then
+if grep -qF "papercut-flush.sh --hook" <<<"$commands"; then
   pass "SessionStart invokes papercut-flush.sh through --hook"
 else
   fail_test "SessionStart invokes papercut-flush.sh through --hook"
@@ -116,7 +118,7 @@ for event, entries in data.get("hooks", {}).items():
 
 expect_attrs() {
   # expect_attrs <event|script|async|timeout>
-  if printf '%s\n' "$attrs" | grep -qxF "$1"; then
+  if grep -qxF "$1" <<<"$attrs"; then
     pass "attrs $1"
   else
     fail_test "attrs $1 (got: $(printf '%s\n' "$attrs" | tr '\n' ' '))"

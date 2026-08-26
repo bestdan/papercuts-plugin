@@ -99,8 +99,11 @@ only.
 - **It does not host anything.** You create and own the ledger repo. There is no
   service, no account, and no third party besides your git host and the model
   call.
-- **It does not grant itself permissions.** The append-gate permission rule and
-  the sandbox write-allowlist paths are yours to add. See
+- **It does not grant itself standing permissions.** The skill authorizes the
+  append gate only for the turn it runs in, through Claude Code's own
+  `allowed-tools` mechanism, and your `deny`/`ask` rules still win over it. The
+  sandbox write-allowlist paths — and a standing permission rule, if your setup
+  turns out to need one — are yours to add. See
   [docs/install.md](docs/install.md).
 - **It does not block or slow a session.** Every hook is async and fail-silent. A
   broken install loses captures; it never breaks your session.
@@ -115,7 +118,15 @@ short version:
 **1. Install the plugin.**
 
 ```sh
-git clone https://github.com/bestdan/papercuts.git ~/src/papercuts-plugin
+claude
+/plugin marketplace add https://github.com/bestdan/papercuts-plugin.git
+/plugin install papercuts@papercuts-plugin
+```
+
+Or clone it and load it with `--plugin-dir` instead:
+
+```sh
+git clone https://github.com/bestdan/papercuts-plugin.git ~/src/papercuts-plugin
 claude --plugin-dir ~/src/papercuts-plugin
 ```
 
@@ -136,10 +147,11 @@ repo = "you/papercuts-ledger"
 TOML
 ```
 
-**4. Add the permission rule and the sandbox paths** to your own
-`settings.json`. Both are user-scope policy a plugin must not grant itself; the
-exact entries and why they are needed are in
-[docs/install.md](docs/install.md).
+**4. Add the sandbox paths** to your own `settings.json` — user-scope policy a
+plugin must not grant itself; the exact entries are in
+[docs/install.md](docs/install.md). A permission rule for the append gate is
+usually unnecessary: the skill grants it for its own turn. The same doc covers
+the fallback rule for setups where a capture still stops on a prompt.
 
 **5. Verify.**
 

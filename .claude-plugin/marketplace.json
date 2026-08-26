@@ -1,0 +1,16 @@
+{
+  "name": "papercuts-plugin",
+  "description": "The papercuts friction ledger for Claude Code",
+  "owner": {
+    "name": "bestdan",
+    "url": "https://github.com/bestdan"
+  },
+  "plugins": [
+    {
+      "name": "papercuts",
+      "description": "Capture friction points ('papercuts') from Claude Code sessions — automatic anchors on tool failures and permission prompts, transcript extraction at session end, and a manual /papercuts:papercut skill — then flush the scrubbed records to a git ledger.",
+      "version": "0.1.0",
+      "source": "./"
+    }
+  ]
+}
