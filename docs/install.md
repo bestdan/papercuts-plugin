@@ -252,14 +252,14 @@ Change these paths if you moved the spool (`PAPERCUT_SPOOL`) or the ledger clone
 It is read-only and never publishes. It prints one `PASS`/`FAIL` line per check
 and exits non-zero if any failed. The checks, by name:
 
-| Check         | What it means                                                            |
-| ------------- | ------------------------------------------------------------------------ |
-| `config`      | the config file exists, parses, and names a ledger                       |
-| `ledger`      | the clone exists and its origin URL is one the config trusts             |
-| `denylist`    | the denylist state matches the resolved profile                          |
-| `spool-perms` | the spool directory is `0700` (absent is fine — first append creates it) |
-| `hooks`       | `hooks/hooks.json` is present and its scripts are executable             |
-| `claude-path` | `claude` is on `PATH` (auto-capture only; manual capture works without)  |
+| Check              | What it means                                                                                                          |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| `config`           | the config file exists, parses, and names a ledger                                                                     |
+| `ledger`           | the clone exists and its origin URL is one the config trusts                                                           |
+| `denylist`         | the denylist state matches the resolved profile                                                                        |
+| `spool-perms`      | the spool directory is `0700` (absent is fine — first append creates it)                                               |
+| `hooks`            | `hooks/hooks.json` is present and its scripts are executable                                                           |
+| `claude-path`      | `claude` is on `PATH` (auto-capture only; manual capture works without)                                                |
 | `permission-entry` | whether `permissions.allow` carries the step-4 fallback rule — always a `PASS`; absence just prints the entry to paste |
 
 When no fallback rule is found it prints the exact `permissions.allow` entry to
