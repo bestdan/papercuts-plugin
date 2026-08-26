@@ -159,8 +159,10 @@ the literal `${CLAUDE_PLUGIN_ROOT}` string — it sees a real path — and the e
 var `CLAUDE_PLUGIN_ROOT` is **not** set in the Bash tool environment, so a
 command that tries to expand it at runtime gets an empty string.
 
-**Consequence, and it is the load-bearing one for the install docs:** a user's
-`permissions.allow` entry must name the resolved absolute path on their machine.
+**Consequence:** if a user adds the fallback `permissions.allow` entry
+(install.md step 4 — usually unnecessary, since the skill's own `allowed-tools`
+grant covers the append for its turn), the entry must name the resolved
+absolute path on their machine.
 A rule holding a literal `${CLAUDE_PLUGIN_ROOT}` can never match what runs.
 `scripts/papercut-doctor.sh` prints the exact entry for the install it ships
 inside, which is why the doctor resolves paths from its own location rather than

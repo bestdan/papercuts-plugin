@@ -118,6 +118,7 @@ short version:
 **1. Install the plugin.**
 
 ```sh
+claude
 /plugin marketplace add https://github.com/bestdan/papercuts-plugin.git
 /plugin install papercuts@papercuts-plugin
 ```

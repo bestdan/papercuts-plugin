@@ -21,12 +21,23 @@ fail_test() {
   fail=1
 }
 
-# --- 1. the manifest parses -------------------------------------------------
+# --- 1. both manifests parse ------------------------------------------------
+# plugin.json is guarded too: the later comparisons json.load it, and a broken
+# plugin manifest would otherwise surface as name/version mismatches with a
+# traceback instead of one clear FAIL line.
 if [ -f "$marketplace_json" ] && python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$marketplace_json" 2>/dev/null; then
   pass ".claude-plugin/marketplace.json exists and is valid JSON"
 else
   fail_test ".claude-plugin/marketplace.json exists and is valid JSON"
   printf '\nManifest unusable; skipping the rest.\n'
+  exit 1
+fi
+
+if [ -f "$plugin_json" ] && python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$plugin_json" 2>/dev/null; then
+  pass ".claude-plugin/plugin.json exists and is valid JSON"
+else
+  fail_test ".claude-plugin/plugin.json exists and is valid JSON"
+  printf '\nPlugin manifest unusable; skipping the rest.\n'
   exit 1
 fi
 

@@ -5,11 +5,12 @@ flusher commits and pushes them to a git repo you own. Make that repo private,
 and read [what the scrub does and does not cover](../README.md#what-it-does-not-do)
 before you point the pipeline at confidential work.
 
-Steps 1-3 get the pipeline installed and identified. Steps 4 and 5 are the two
-things the plugin deliberately does **not** ship: the permission rule for the
-append gate, and the sandbox write-allowlist paths. Both are user-scope policy —
-a plugin must not grant itself the right to run a script or to write outside the
-sandbox. Add them yourself. Step 6 verifies the whole thing.
+Steps 1-3 get the pipeline installed and identified. Step 5's sandbox
+write-allowlist paths are the one thing the plugin deliberately does **not**
+ship: user-scope policy — a plugin must not grant itself the right to write
+outside the sandbox. Add them yourself. Step 4's permission rule is a fallback
+you will usually skip: the skill authorizes the append gate for its own turn
+through `allowed-tools`. Step 6 verifies the whole thing.
 
 ## Prerequisites
 

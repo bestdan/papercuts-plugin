@@ -20,9 +20,10 @@ Log a papercut — friction the user noticed but that left no clean trace in the
 > time you read it. The variable is **not** exported into the Bash tool
 > environment, so do not expect `$CLAUDE_PLUGIN_ROOT` to expand in a command you
 > run; use the absolute path you see here. The same substitution is why a user's
-> own `permissions.allow` entry must name the resolved absolute path rather than
-> the literal `${CLAUDE_PLUGIN_ROOT}` string — see `docs/install.md`, or run
-> `scripts/papercut-doctor.sh`, which prints the exact entry for this install.
+> `permissions.allow` entry — if they add the fallback rule from
+> `docs/install.md` step 4 — must name the resolved absolute path rather than
+> the literal `${CLAUDE_PLUGIN_ROOT}` string; `scripts/papercut-doctor.sh`
+> prints the exact entry for this install.
 
 ---
 
@@ -75,7 +76,7 @@ The single-quoted heredoc delimiter (`'PAPERCUT_JSON'`) disables all expansion, 
 
 If the script exits non-zero, show the stderr reason to the user (e.g. a scrub rejection) and stop — do not retry with edited text to route around a rejection.
 
-If it fails with a **permission prompt or denial** rather than a scrub rejection, the install is missing the `permissions.allow` entry for the gate. Point the user at `scripts/papercut-doctor.sh`, which prints the exact entry to paste, and `docs/install.md`.
+If it fails with a **permission prompt or denial** rather than a scrub rejection, something overrode this skill's own `allowed-tools` grant for the gate — a matching `deny`/`ask` rule, a `PreToolUse` command rewriter, or the append running outside the skill's turn. Point the user at `scripts/papercut-doctor.sh`, which prints the fallback `permissions.allow` entry to paste, and `docs/install.md` step 4.
 
 ## Step 4 — Confirm Using the Script's Output
 
