@@ -82,6 +82,11 @@ git clone https://github.com/bestdan/papercuts-plugin.git ~/src/papercuts-plugin
 claude --plugin-dir ~/src/papercuts-plugin
 ```
 
+In the manifest, the plugin's `"source": "./"` means its content is the
+marketplace repo itself — you still add the marketplace by URL; the installer
+clones it and installs the plugin from that clone, so the manifest and the
+plugin content stay in lockstep.
+
 The two are equivalent for the hooks and the skill. One caveat:
 `CLAUDE_PLUGIN_DATA` was observed with an `-inline` suffix under a `--plugin-dir`
 install, and whether a marketplace install produces a different data path is
@@ -176,16 +181,18 @@ that invokes the skill. Verified empirically: in a headless session — where an
 unapproved call is denied outright rather than prompted — with no papercuts
 entry anywhere in `permissions.allow`, the skill appended a record cleanly.
 
-So skip this step on a first install. Add the rule below only if a capture
-actually stops on a permission prompt for `papercut_append.py`, which means
-something in your setup overrode the skill's own grant:
+So skip this step on a first install. If a capture actually stops on a
+permission prompt for `papercut_append.py`, something in your setup overrode
+the skill's own grant — and the causes have different remedies:
 
-- a matching `deny` or `ask` rule — those win over `allowed-tools`;
+- a matching `deny` or `ask` rule — those win over `allowed-tools`, **and over
+  any allow rule too**, so the fallback rule below cannot cure this case:
+  scope, loosen, or remove the `deny`/`ask` rule instead;
 - a `PreToolUse` command rewriter — the matcher runs against the **rewritten**
-  command, so the skill's grant no longer matches and your allow rule must
-  name the rewritten form;
+  command, so the skill's grant no longer matches: add the fallback rule,
+  naming the rewritten form;
 - an append invoked outside the skill's own turn — the grant does not outlive
-  the turn that loaded the skill.
+  the turn that loaded the skill: add the fallback rule as printed.
 
 The fallback rule, in `permissions.allow` in your `settings.json`:
 
