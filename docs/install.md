@@ -66,20 +66,34 @@ expansion, which compares nothing).
 
 ## 1. Install the plugin
 
-Clone it and load it with `--plugin-dir`:
+Install it from the marketplace this repo publishes:
 
 ```sh
-git clone https://github.com/bestdan/papercuts.git ~/src/papercuts-plugin
+claude
+/plugin marketplace add https://github.com/bestdan/papercuts-plugin.git
+/plugin install papercuts@papercuts-plugin
+```
+
+Or clone it and load it with `--plugin-dir` instead:
+
+```sh
+git clone https://github.com/bestdan/papercuts-plugin.git ~/src/papercuts-plugin
 claude --plugin-dir ~/src/papercuts-plugin
 ```
 
-A marketplace install works the same way for the hooks and the skill. One caveat:
+The two are equivalent for the hooks and the skill. One caveat:
 `CLAUDE_PLUGIN_DATA` was observed with an `-inline` suffix under a `--plugin-dir`
 install, and whether a marketplace install produces a different data path is
 untested. Nothing in the pipeline depends on `CLAUDE_PLUGIN_DATA`, but the
 resolved plugin root does differ between install methods, which matters for the
 permission rule in step 4 — so run the doctor and paste what it prints rather
 than reusing a path from another machine.
+
+A marketplace install resolves under
+`~/.claude/plugins/cache/papercuts-plugin/papercuts/<version>/`. **That path
+carries the version**, so every release moves it and the step 4 permission rule
+stops matching. Re-run the doctor and paste the new line after an upgrade. A
+`--plugin-dir` install has no version segment and never moves.
 
 The skill is namespaced by the plugin, so it is invoked as
 `/papercuts:papercut`, not `/papercut`.

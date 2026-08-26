@@ -115,7 +115,14 @@ short version:
 **1. Install the plugin.**
 
 ```sh
-git clone https://github.com/bestdan/papercuts.git ~/src/papercuts-plugin
+/plugin marketplace add https://github.com/bestdan/papercuts-plugin.git
+/plugin install papercuts@papercuts-plugin
+```
+
+Or clone it and load it with `--plugin-dir` instead:
+
+```sh
+git clone https://github.com/bestdan/papercuts-plugin.git ~/src/papercuts-plugin
 claude --plugin-dir ~/src/papercuts-plugin
 ```
 
