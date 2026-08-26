@@ -42,7 +42,7 @@ else
 fi
 
 # --- 2. it advertises exactly one plugin, named for the plugin manifest ------
-read -r entry_count entry_name entry_version entry_source_url <<EOF
+read -r entry_count entry_name entry_version entry_source <<EOF
 $(python3 -c '
 import json
 import sys
@@ -52,11 +52,14 @@ with open(sys.argv[1], "rb") as f:
 
 plugins = data.get("plugins", [])
 first = plugins[0] if plugins else {}
+source = first.get("source", "-")
+if isinstance(source, dict):
+    source = source.get("url", "-")
 print(
     len(plugins),
     first.get("name", "-"),
     first.get("version", "-"),
-    first.get("source", {}).get("url", "-"),
+    source,
 )
 ' "$marketplace_json")
 EOF
@@ -82,12 +85,16 @@ else
   fail_test "marketplace entry version is $entry_version but plugin.json says $plugin_version"
 fi
 
-# --- 4. the source points at this repo --------------------------------------
-expected_url="https://github.com/bestdan/papercuts-plugin.git"
-if [ "$entry_source_url" = "$expected_url" ]; then
-  pass "marketplace entry source url is $expected_url"
+# --- 4. the source is the marketplace repo itself ---------------------------
+# "./" keeps manifest and plugin content in lockstep: the plugin installs from
+# the marketplace clone, not a fresh clone of the default branch. A URL source
+# was observed installing main's content even when the marketplace was added
+# from a local branch checkout.
+expected_source="./"
+if [ "$entry_source" = "$expected_source" ]; then
+  pass "marketplace entry source is $expected_source (this repo)"
 else
-  fail_test "marketplace entry source url is $entry_source_url, expected $expected_url"
+  fail_test "marketplace entry source is $entry_source, expected $expected_source"
 fi
 
 if [ "$fail" -eq 0 ]; then
