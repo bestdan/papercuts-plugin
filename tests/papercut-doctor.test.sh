@@ -225,6 +225,11 @@ with open(path, "w") as f:
 ' "$dir/settings.json" "\$HOME$rel_suffix"
 run_doctor "$dir" "HOME=$fake_home"
 assert_no_failing_check "\$HOME spelling" permission-entry
+if printf '%s\n' "$out" | grep -qF 'If a capture ever stops'; then
+  fail_test "\$HOME spelling was not detected (fallback advice printed)"
+else
+  pass "\$HOME spelling detected (no fallback advice)"
+fi
 
 dir="$(new_dir)"
 printf '[ledger]\nrepo = "you/papercuts-ledger"\n' >"$dir/config.toml"
@@ -237,6 +242,11 @@ with open(path, "w") as f:
 ' "$dir/settings.json" "~$rel_suffix"
 run_doctor "$dir" "HOME=$fake_home"
 assert_no_failing_check "~ spelling" permission-entry
+if printf '%s\n' "$out" | grep -qF 'If a capture ever stops'; then
+  fail_test "~ spelling was not detected (fallback advice printed)"
+else
+  pass "~ spelling detected (no fallback advice)"
+fi
 
 if [ "$fail" -eq 0 ]; then
   printf '\nAll papercut-doctor tests passed.\n'
