@@ -177,9 +177,13 @@ The `/papercuts:papercut` skill pipes a record to `papercut_append.py`, and the
 skill authorizes that call itself: its frontmatter declares an `allowed-tools`
 grant for the gate, Claude Code resolves `${CLAUDE_PLUGIN_ROOT}` in it to this
 install's absolute path at skill-load time, and the grant holds for the turn
-that invokes the skill. Verified empirically: in a headless session — where an
-unapproved call is denied outright rather than prompted — with no papercuts
-entry anywhere in `permissions.allow`, the skill appended a record cleanly.
+that invokes the skill. Both halves are documented Claude Code behavior:
+skill frontmatter `allowed-tools` grants go through the normal permission
+flow, and `${CLAUDE_PLUGIN_ROOT}` is substituted when the skill loads. (A
+session with no papercuts entry anywhere in `permissions.allow` appended a
+record cleanly — consistent with the grant, though on a machine whose default
+permission mode auto-approves sandboxed commands that observation cannot
+isolate the grant as the only cause.)
 
 So skip this step on a first install. If a capture actually stops on a
 permission prompt for `papercut_append.py`, something in your setup overrode
@@ -248,18 +252,19 @@ Change these paths if you moved the spool (`PAPERCUT_SPOOL`) or the ledger clone
 It is read-only and never publishes. It prints one `PASS`/`FAIL` line per check
 and exits non-zero if any failed. The checks, by name:
 
-| Check         | What it means                                                            |
-| ------------- | ------------------------------------------------------------------------ |
-| `config`      | the config file exists, parses, and names a ledger                       |
-| `ledger`      | the clone exists and its origin URL is one the config trusts             |
-| `denylist`    | the denylist state matches the resolved profile                          |
-| `spool-perms` | the spool directory is `0700` (absent is fine — first append creates it) |
-| `hooks`       | `hooks/hooks.json` is present and its scripts are executable             |
-| `claude-path` | `claude` is on `PATH` (auto-capture only; manual capture works without)  |
+| Check              | What it means                                                                                                          |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| `config`           | the config file exists, parses, and names a ledger                                                                     |
+| `ledger`           | the clone exists and its origin URL is one the config trusts                                                           |
+| `denylist`         | the denylist state matches the resolved profile                                                                        |
+| `spool-perms`      | the spool directory is `0700` (absent is fine — first append creates it)                                               |
+| `hooks`            | `hooks/hooks.json` is present and its scripts are executable                                                           |
+| `claude-path`      | `claude` is on `PATH` (auto-capture only; manual capture works without)                                                |
+| `permission-entry` | whether `permissions.allow` carries the step-4 fallback rule — always a `PASS`; absence just prints the entry to paste |
 
-It finishes by printing the exact `permissions.allow` entry to paste, with the
-absolute path of _this_ install resolved — it reads its own location, not `PWD`,
-so run the copy inside the install you actually loaded.
+When no fallback rule is found it prints the exact `permissions.allow` entry to
+paste, with the absolute path of _this_ install resolved — it reads its own
+location, not `PWD`, so run the copy inside the install you actually loaded.
 
 Then log a record by hand with `/papercuts:papercut` to confirm the gate and the
 permission rule agree, and check that it landed:

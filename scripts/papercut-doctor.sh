@@ -12,10 +12,12 @@
 #   spool-perms   the spool directory is 0700
 #   hooks         hooks/hooks.json is present and its scripts are executable
 #   claude-path   `claude` is on PATH
+#   permission-entry   whether permissions.allow carries the fallback rule
 #
-# It finishes by printing the exact permissions.allow entry to paste, with the
-# absolute path of THIS install resolved — see docs/install.md for why a
-# plugin cannot grant that itself.
+# permission-entry always passes — an absent rule is the normal state, since
+# the skill authorizes its own append per turn (docs/install.md step 4). When
+# no rule is found, the doctor prints the exact entry to paste, with the
+# absolute path of THIS install resolved.
 #
 # Env overrides (same names and meanings the rest of the pipeline uses, so a
 # doctor run can be pointed at a fixture):
@@ -24,6 +26,8 @@
 #   PAPERCUT_DENYLIST     denylist path
 #   PAPERCUT_SPOOL        spool file path (its dirname is the spool dir)
 #   PAPERCUT_DETECT_CMD   overrides profile detection (tests force a profile)
+#   PAPERCUT_SETTINGS     the user's settings.json to check for the
+#                         permissions.allow entry (default: ~/.claude/settings.json)
 
 set -uo pipefail
 
@@ -248,10 +252,75 @@ else
   fail claude-path "claude is not on PATH"
 fi
 
-# --- the fallback permission entry, printed resolved ------------------------
-printf '\nThe /papercuts:papercut skill authorizes its own append call for the turn\nit runs in (allowed-tools), so a permission rule is usually unnecessary. If\na capture still stops on a permission prompt, add this to permissions.allow\nin your own settings.json — the path is this install, resolved:\n\n'
-printf '  "Bash(python3 %s/papercut_append.py:*)"\n\n' "$SCRIPT_DIR"
-printf 'See docs/install.md for the sandbox write-allowlist entries too.\n'
+# --- 7. the fallback permission entry: detected, never required ------------
+# The skill authorizes its own append call for the turn it runs in
+# (allowed-tools), so an absent entry is the normal state, not a failure —
+# docs/install.md step 4 names the cases that need the fallback rule. The
+# doctor reports whether one is present and, when it is not, prints the
+# exact entry to paste if a capture ever stops on a permission prompt.
+# Detection accepts three spellings of the same path — the resolved
+# absolute path, the home prefix written as $HOME, or written as ~ — a
+# user who wrote any of them intended coverage. The printed advice
+# recommends only the resolved absolute path: whether permission rules
+# expand $HOME/~ against a resolved-path command is unverified, and the
+# resolved spelling is the one docs/install.md documents.
+settings_path="${PAPERCUT_SETTINGS:-$HOME/.claude/settings.json}"
+target_path="$SCRIPT_DIR/papercut_append.py"
+home_spelling="$target_path"
+tilde_spelling="$target_path"
+case "$target_path" in
+  "$HOME"/*)
+    home_spelling="\$HOME${target_path#"$HOME"}"
+    tilde_spelling="~${target_path#"$HOME"}"
+    ;;
+esac
+
+entry_found=0
+if [ -f "$settings_path" ]; then
+  entry_found="$(python3 -c '
+import json
+import sys
+
+resolved, home, tilde = sys.argv[2], sys.argv[3], sys.argv[4]
+try:
+    with open(sys.argv[1], "rb") as f:
+        data = json.load(f)
+except (OSError, ValueError):
+    print(0)
+    sys.exit(0)
+
+if not isinstance(data, dict) or not isinstance(data.get("permissions"), dict):
+    print(0)
+    sys.exit(0)
+
+allow = data["permissions"].get("allow", [])
+if not isinstance(allow, list):
+    print(0)
+    sys.exit(0)
+
+# Anchor on the path followed by ":*" — the tail every real rule carries —
+# so a longer path with this one as a prefix, or an unrelated string that
+# merely mentions the file, does not count as coverage. Rule variants (an
+# rtk-prefixed twin, python3 flags) still match.
+for entry in allow:
+    if not isinstance(entry, str):
+        continue
+    if resolved + ":*" in entry or home + ":*" in entry or tilde + ":*" in entry:
+        print(1)
+        sys.exit(0)
+print(0)
+' "$settings_path" "$target_path" "$home_spelling" "$tilde_spelling" 2>/dev/null)"
+  [ "$entry_found" = "1" ] || entry_found=0
+fi
+
+if [ "$entry_found" = "1" ]; then
+  pass permission-entry "$settings_path permissions.allow covers $target_path (fallback rule present)"
+else
+  pass permission-entry "no fallback rule in $settings_path — usually unnecessary; the skill authorizes its own turn"
+  printf '\nIf a capture ever stops on a permission prompt for papercut_append.py, add\nthis to permissions.allow in your own settings.json — the path is this\ninstall, resolved:\n\n'
+  printf '  "Bash(python3 %s:*)"\n\n' "$target_path"
+  printf 'docs/install.md step 4 names the cases that need the fallback rule; see it\nfor the sandbox write-allowlist entries too.\n'
+fi
 
 if [ "$failures" -ne 0 ]; then
   printf '\n%s check(s) failed.\n' "$failures"

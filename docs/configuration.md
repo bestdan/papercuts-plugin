@@ -201,6 +201,7 @@ Read-only; it never publishes.
 | `PAPERCUT_DENYLIST`   | `~/.config/papercuts/denylist.txt`   | Denylist whose state is checked against the profile.      |
 | `PAPERCUT_SPOOL`      | `~/.claude/papercuts/spool.jsonl`    | Its dirname is the spool directory whose mode is checked. |
 | `PAPERCUT_DETECT_CMD` | unset                                | Overrides profile detection.                              |
+| `PAPERCUT_SETTINGS`   | `~/.claude/settings.json`            | Settings file checked for the `permissions.allow` entry.  |
 
 ### Resolutions — `papercut-resolve.sh`, `papercut_open.py`
 
