@@ -85,15 +85,17 @@ The two are equivalent for the hooks and the skill. One caveat:
 `CLAUDE_PLUGIN_DATA` was observed with an `-inline` suffix under a `--plugin-dir`
 install, and whether a marketplace install produces a different data path is
 untested. Nothing in the pipeline depends on `CLAUDE_PLUGIN_DATA`, but the
-resolved plugin root does differ between install methods, which matters for the
-permission rule in step 4 — so run the doctor and paste what it prints rather
-than reusing a path from another machine.
+resolved plugin root does differ between install methods, which matters if you
+ever add the fallback permission rule in step 4 — run the doctor and paste what
+it prints rather than reusing a path from another machine.
 
 A marketplace install resolves under
 `~/.claude/plugins/cache/papercuts-plugin/papercuts/<version>/`. **That path
-carries the version**, so every release moves it and the step 4 permission rule
-stops matching. Re-run the doctor and paste the new line after an upgrade. A
-`--plugin-dir` install has no version segment and never moves.
+carries the version**, so every release moves it. Capture does not depend on it
+staying put — the skill re-resolves its own grant at load time (step 4) — but a
+path-pinned permission rule does: if you added one, re-run the doctor and paste
+the new line after an upgrade. A `--plugin-dir` install has no version segment
+and never moves.
 
 The skill is namespaced by the plugin, so it is invoked as
 `/papercuts:papercut`, not `/papercut`.
@@ -163,12 +165,28 @@ still missing terms. Populate it deliberately.
 On a default host no denylist is required. If one exists, its literals are
 redacted rather than rejected.
 
-## 4. Permission rule for the append gate
+## 4. Permission rule for the append gate (usually unnecessary)
 
-The `/papercuts:papercut` skill pipes a record to `papercut_append.py`. Without
-this rule every capture stops on a permission prompt.
+The `/papercuts:papercut` skill pipes a record to `papercut_append.py`, and the
+skill authorizes that call itself: its frontmatter declares an `allowed-tools`
+grant for the gate, Claude Code resolves `${CLAUDE_PLUGIN_ROOT}` in it to this
+install's absolute path at skill-load time, and the grant holds for the turn
+that invokes the skill. Verified empirically: in a headless session — where an
+unapproved call is denied outright rather than prompted — with no papercuts
+entry anywhere in `permissions.allow`, the skill appended a record cleanly.
 
-Add to `permissions.allow` in your `settings.json`:
+So skip this step on a first install. Add the rule below only if a capture
+actually stops on a permission prompt for `papercut_append.py`, which means
+something in your setup overrode the skill's own grant:
+
+- a matching `deny` or `ask` rule — those win over `allowed-tools`;
+- a `PreToolUse` command rewriter — the matcher runs against the **rewritten**
+  command, so the skill's grant no longer matches and your allow rule must
+  name the rewritten form;
+- an append invoked outside the skill's own turn — the grant does not outlive
+  the turn that loaded the skill.
+
+The fallback rule, in `permissions.allow` in your `settings.json`:
 
 ```json
 {
@@ -185,10 +203,10 @@ Add to `permissions.allow` in your `settings.json`:
 substitutes that variable when it loads the skill, so the command that actually
 runs — and that the permission matcher sees — already carries the absolute path.
 Run `scripts/papercut-doctor.sh` and paste the line it prints rather than
-guessing the install directory.
-
-If you use a `PreToolUse` command rewriter, the matcher runs against the
-**rewritten** command, so add the rewritten twin as well.
+guessing the install directory. On a marketplace install that path moves with
+every release, so the rule needs re-pasting after each upgrade — one more
+reason to lean on the skill's own grant and add this rule only when you have
+seen it needed.
 
 ## 5. Sandbox write-allowlist
 
