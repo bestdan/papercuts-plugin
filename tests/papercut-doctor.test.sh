@@ -51,6 +51,7 @@ run_doctor() {
     PAPERCUT_DENYLIST="$dir/denylist.txt" \
     PAPERCUT_SPOOL="$dir/spool/spool.jsonl" \
     PAPERCUT_DETECT_CMD='echo default' \
+    PAPERCUT_SETTINGS="$dir/settings.json" \
     "$@" \
     bash "$doctor" 2>&1)"
   rc=$?
@@ -148,7 +149,15 @@ bare_ledger "$dir/ledger" "git@github.com:you/papercuts-ledger.git"
 run_doctor "$dir"
 assert_no_failing_check "shipped manifest" hooks
 
-# --- 6. the printed permissions.allow entry names the resolved abs path ----
+# --- 6. permission-entry: absence is the normal state — advice, not a fail -
+# The skill self-authorizes the append for its own turn, so no entry is a
+# PASS. The doctor must still print the fallback advice, and must not crash
+# on a missing PAPERCUT_SETTINGS file.
+dir="$(new_dir)"
+printf '[ledger]\nrepo = "you/papercuts-ledger"\n' >"$dir/config.toml"
+bare_ledger "$dir/ledger" "git@github.com:you/papercuts-ledger.git"
+run_doctor "$dir"
+assert_no_failing_check "no settings file" permission-entry
 if printf '%s\n' "$out" | grep -qF "\"Bash(python3 $script_dir/papercut_append.py:*)\""; then
   pass "prints the permissions.allow entry with the resolved absolute path"
 else
@@ -160,6 +169,74 @@ if printf '%s\n' "$out" | grep -qF 'CLAUDE_PLUGIN_ROOT'; then
 else
   pass "the printed permission entry carries no unresolved variable"
 fi
+
+# --- 6b. permission-entry: absent entry with an EMPTY settings file --------
+dir="$(new_dir)"
+printf '[ledger]\nrepo = "you/papercuts-ledger"\n' >"$dir/config.toml"
+bare_ledger "$dir/ledger" "git@github.com:you/papercuts-ledger.git"
+printf '{}\n' >"$dir/settings.json"
+run_doctor "$dir"
+assert_no_failing_check "empty settings.json" permission-entry
+
+# --- 6c. permission-entry: malformed JSON is treated as "not found", not a
+# crash -----------------------------------------------------------------
+dir="$(new_dir)"
+printf '[ledger]\nrepo = "you/papercuts-ledger"\n' >"$dir/config.toml"
+bare_ledger "$dir/ledger" "git@github.com:you/papercuts-ledger.git"
+printf '{ not valid json' >"$dir/settings.json"
+run_doctor "$dir"
+assert_no_failing_check "malformed settings.json" permission-entry
+
+# --- 6d. permission-entry passes: the resolved absolute path spelling ------
+dir="$(new_dir)"
+printf '[ledger]\nrepo = "you/papercuts-ledger"\n' >"$dir/config.toml"
+bare_ledger "$dir/ledger" "git@github.com:you/papercuts-ledger.git"
+resolved_target="$script_dir/papercut_append.py"
+python3 -c '
+import json, sys
+path, entry = sys.argv[1], sys.argv[2]
+with open(path, "w") as f:
+    json.dump({"permissions": {"allow": [f"Bash(python3 {entry}:*)"]}}, f)
+' "$dir/settings.json" "$resolved_target"
+run_doctor "$dir"
+assert_no_failing_check "resolved-path spelling" permission-entry
+if printf '%s\n' "$out" | grep -qF 'If a capture ever stops'; then
+  fail_test "a present entry must not print the fallback advice"
+else
+  pass "a present entry prints no fallback advice"
+fi
+
+# --- 6e/6f. permission-entry passes: $HOME and ~ spellings -----------------
+# The doctor rewrites its own resolved path relative to $HOME. To exercise
+# that rewrite (the real install's script_dir already sits under the real
+# $HOME, but the test-pinned $HOME does not), point HOME at script_dir's
+# grandparent for just these two cases so the prefix match fires.
+fake_home="$(dirname "$(dirname "$script_dir")")"
+rel_suffix="${resolved_target#"$fake_home"}"
+
+dir="$(new_dir)"
+printf '[ledger]\nrepo = "you/papercuts-ledger"\n' >"$dir/config.toml"
+bare_ledger "$dir/ledger" "git@github.com:you/papercuts-ledger.git"
+python3 -c '
+import json, sys
+path, entry = sys.argv[1], sys.argv[2]
+with open(path, "w") as f:
+    json.dump({"permissions": {"allow": [f"Bash(python3 {entry}:*)"]}}, f)
+' "$dir/settings.json" "\$HOME$rel_suffix"
+run_doctor "$dir" "HOME=$fake_home"
+assert_no_failing_check "\$HOME spelling" permission-entry
+
+dir="$(new_dir)"
+printf '[ledger]\nrepo = "you/papercuts-ledger"\n' >"$dir/config.toml"
+bare_ledger "$dir/ledger" "git@github.com:you/papercuts-ledger.git"
+python3 -c '
+import json, sys
+path, entry = sys.argv[1], sys.argv[2]
+with open(path, "w") as f:
+    json.dump({"permissions": {"allow": [f"Bash(python3 {entry}:*)"]}}, f)
+' "$dir/settings.json" "~$rel_suffix"
+run_doctor "$dir" "HOME=$fake_home"
+assert_no_failing_check "~ spelling" permission-entry
 
 if [ "$fail" -eq 0 ]; then
   printf '\nAll papercut-doctor tests passed.\n'
