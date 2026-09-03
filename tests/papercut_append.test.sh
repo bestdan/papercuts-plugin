@@ -410,6 +410,18 @@ desc="$(get_field "$out" description)"
 assert_contains "token allowlist: allowlisted term survives" "$desc" "dependency-readiness"
 assert_not_contains "token allowlist: allowlisted term not shredded" "$desc" "[token]"
 
+# --- a CLI flag survives WITH its leading dashes. The dashes are part of the
+# run the token rule matches, so an allowlist entry without them would exempt
+# nothing; the bare "skip-git-repo-check" is 19 chars and never matches at all.
+# That asymmetry is why this is asserted rather than assumed. ---
+d="$(next_dir)"
+out="$(PAPERCUT_DENYLIST="$no_denylist" run_gate "$d" \
+  '{"category":"instruction_gap","severity":"low","title":"t","description":"the skill omits --skip-git-repo-check so the dispatch dies"}' \
+  --source manual --producer test/1 --repo dotfiles)"
+desc="$(get_field "$out" description)"
+assert_contains "token allowlist: --skip-git-repo-check survives with its dashes" "$desc" "--skip-git-repo-check"
+assert_not_contains "token allowlist: flag not shredded" "$desc" "[token]"
+
 # --- this repo's own script names survive: they are tracked files, never secrets ---
 d="$(next_dir)"
 out="$(PAPERCUT_DENYLIST="$no_denylist" run_gate "$d" \
@@ -994,6 +1006,36 @@ else
   printf 'FAIL (sentence-initial-capital regression: %s | file=%s)\n' "$(cat "$workdir/review_cap_err")" "$(cat "$review_file" 2>/dev/null)"
   fail=1
 fi
+
+# --- regression for the leading-dash fix: a flag-shaped run now reaches the
+# sidecar. Uses a flag OTHER than the already-allowlisted
+# "--skip-git-repo-check" so the allowlist's exact-match short-circuit (which
+# runs before the vocab check) cannot mask a regression in the regex itself.
+# Before the fix every flag name was redacted with nothing on stderr, which is
+# the silence _VOCAB_RUN_RES exists to end — and its own comment already
+# claimed flag names were covered. ---
+d="$(next_dir)"
+review_file="$d/scrub-review.jsonl"
+out="$(PAPERCUT_DENYLIST="$review_no_denylist" PAPERCUT_REVIEW_FILE="$review_file" run_gate "$d" \
+  '{"category":"harness_config","severity":"low","title":"t","description":"the run died on --some-other-flag-name here"}' \
+  --source manual --producer test/1 --repo dotfiles)"
+record_id="$(get_field "$out" id)"
+desc="$(get_field "$out" description)"
+if [ -s "$review_file" ] && python3 -c '
+import json, sys
+with open(sys.argv[1]) as f:
+    entry = json.loads(f.readline())
+assert entry["record_id"] == sys.argv[2], entry
+assert entry["runs"] == ["--some-other-flag-name"], entry
+' "$review_file" "$record_id" 2>"$workdir/review_flag_err"; then
+  printf 'ok   (flag-shaped vocab run now reaches the sidecar)\n'
+else
+  printf 'FAIL (flag-name regression: %s | file=%s)\n' "$(cat "$workdir/review_flag_err")" "$(cat "$review_file" 2>/dev/null)"
+  fail=1
+fi
+# Surfacing is not exemption: the non-allowlisted flag must still be redacted.
+assert_contains "flag-shaped run still redacted in the stored record" "$desc" "[token]"
+assert_not_contains "flag-shaped run not stored raw" "$desc" "--some-other-flag-name"
 
 # --- sidecar write failure must NEVER fail the append: point
 # PAPERCUT_REVIEW_FILE at a path whose parent already exists as a plain FILE
