@@ -375,6 +375,14 @@ _TOKEN_ALLOWLIST = frozenset({
     # no entropy in either casing.
     "Operation-not-permitted",
     "operation-not-permitted",
+    # A CLI flag, listed WITH its leading dashes because that is the whole run
+    # the token rule sees: the charset includes "-", so the match starts at the
+    # first dash and "--skip-git-repo-check" is 21 chars. The bare
+    # "skip-git-repo-check" is 19 and never matches at all, so an entry without
+    # the dashes would exempt nothing. Named constantly by papercuts about
+    # dispatching codex from a non-repo cwd, and it is a published flag of a
+    # public CLI, so it carries no entropy.
+    "--skip-git-repo-check",
 })
 
 
@@ -417,10 +425,27 @@ _VOCAB_RUN_RES = (
     # capital fix: this shape only decides what gets SURFACED for review, never
     # what gets EXEMPTED from redaction, so widening it further only means more
     # (never fewer) redactions get a human second look.
-    re.compile(r"[A-Z]?[a-z]+(?:[-_][a-z]{2,})+"),
+    #
+    # The optional leading "-"/"--"/"_" is the same fix again, for the shapes
+    # the comment above already claims to cover: flag names and identifiers.
+    # The token charset includes both "-" and "_", so the run handed to
+    # _is_vocab_run keeps whatever non-letter it starts with, and a pattern
+    # anchored to a letter could never fullmatch it. Every flag name LONG
+    # ENOUGH TO REACH the >=20-char token rule was therefore redacted with
+    # nothing on stderr — a short flag like "--force" never enters this path at
+    # all — which is precisely the silence this tuple exists to end. Found when
+    # "--skip-git-repo-check" reached the ledger as "the skill omits [token]".
+    #
+    # The underscore half is the same defect one character over, fixed here
+    # rather than noted, because the only way this silence has ever been caught
+    # is by reading an already-mangled record: "no instance observed" was true
+    # of flag names too, right up until one was. Verified before fixing that
+    # "_SOME_LEADING_UNDERSCORE_NAME" and "_a_private_helper_function" were
+    # both redacted and both unsurfaced.
+    re.compile(r"(?:--?|_)?[A-Z]?[a-z]+(?:[-_][a-z]{2,})+"),
     # SCREAMING_SNAKE_CASE — overwhelmingly env-var and constant NAMES, which are
     # not themselves secret even when they name a secret: "GH_TOKEN_FALLBACK".
-    re.compile(r"[A-Z]{2,}(?:_[A-Z]{2,})+"),
+    re.compile(r"_?[A-Z]{2,}(?:_[A-Z]{2,})+"),
     # camelCase / PascalCase identifiers: "dangerouslyDisableSandbox".
     re.compile(r"[a-z]+(?:[A-Z][a-z]+)+|(?:[A-Z][a-z]+){2,}"),
 )
