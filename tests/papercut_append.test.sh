@@ -1011,7 +1011,8 @@ fi
 # sidecar. Uses a flag OTHER than the already-allowlisted
 # "--skip-git-repo-check" so the allowlist's exact-match short-circuit (which
 # runs before the vocab check) cannot mask a regression in the regex itself.
-# Before the fix every flag name was redacted with nothing on stderr, which is
+# Before the fix every flag name long enough to reach the token rule was
+# redacted with nothing on stderr, which is
 # the silence _VOCAB_RUN_RES exists to end — and its own comment already
 # claimed flag names were covered. ---
 d="$(next_dir)"
@@ -1036,6 +1037,35 @@ fi
 # Surfacing is not exemption: the non-allowlisted flag must still be redacted.
 assert_contains "flag-shaped run still redacted in the stored record" "$desc" "[token]"
 assert_not_contains "flag-shaped run not stored raw" "$desc" "--some-other-flag-name"
+
+# --- regression for the leading-underscore half of the same fix: an
+# underscore-led run reaches the sidecar too. One record carries both shapes —
+# SCREAMING_SNAKE (shape 2) and lowercase_snake (shape 1) — because each shape
+# was anchored to a letter and so failed the fullmatch independently. Neither
+# term is allowlisted, so the exact-match short-circuit cannot mask a regex
+# regression. ---
+d="$(next_dir)"
+review_file="$d/scrub-review.jsonl"
+out="$(PAPERCUT_DENYLIST="$review_no_denylist" PAPERCUT_REVIEW_FILE="$review_file" run_gate "$d" \
+  '{"category":"harness_config","severity":"low","title":"t","description":"_SOME_LEADING_UNDERSCORE_NAME broke when _a_private_helper_function ran"}' \
+  --source manual --producer test/1 --repo dotfiles)"
+record_id="$(get_field "$out" id)"
+desc="$(get_field "$out" description)"
+if [ -s "$review_file" ] && python3 -c '
+import json, sys
+with open(sys.argv[1]) as f:
+    entry = json.loads(f.readline())
+assert entry["record_id"] == sys.argv[2], entry
+assert entry["runs"] == ["_SOME_LEADING_UNDERSCORE_NAME", "_a_private_helper_function"], entry
+' "$review_file" "$record_id" 2>"$workdir/review_us_err"; then
+  printf 'ok   (underscore-led vocab runs reach the sidecar, both shapes)\n'
+else
+  printf 'FAIL (leading-underscore regression: %s | file=%s)\n' "$(cat "$workdir/review_us_err")" "$(cat "$review_file" 2>/dev/null)"
+  fail=1
+fi
+# Surfacing is not exemption here either.
+assert_contains "underscore-led runs still redacted in the stored record" "$desc" "[token]"
+assert_not_contains "underscore-led run not stored raw" "$desc" "_a_private_helper_function"
 
 # --- sidecar write failure must NEVER fail the append: point
 # PAPERCUT_REVIEW_FILE at a path whose parent already exists as a plain FILE
