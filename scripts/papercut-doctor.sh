@@ -439,7 +439,7 @@ for item in json.load(sys.stdin):
           if grep -Fxq -- "$label" "$cache" 2>/dev/null; then
             continue
           fi
-          have="$(grep -ix -m1 -- "$label" "$cache" 2>/dev/null)"
+          have="$(grep -Fix -m1 -- "$label" "$cache" 2>/dev/null)"
           if [ -n "$have" ]; then
             item="case mismatch: $have vs $label"
           else

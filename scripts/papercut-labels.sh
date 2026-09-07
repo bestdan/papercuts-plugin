@@ -187,7 +187,7 @@ while IFS=$'\t' read -r name repo labels_csv; do
       continue
     fi
     missing_count=$((missing_count + 1))
-    have="$(grep -ix -m1 -- "$label" "$cache" 2>/dev/null)"
+    have="$(grep -Fix -m1 -- "$label" "$cache" 2>/dev/null)"
     if [ -n "$have" ]; then
       item="case mismatch: $have vs $label"
     else
