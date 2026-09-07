@@ -157,7 +157,7 @@ def _validate_external(name, table, path):
     if "tracker" in table:
         raise OwnersError(f"{path}: {context}.tracker is not allowed -- external targets have no tracker")
     if "labels" in table:
-        raise OwnersError(f"{path}: {context}.labels is not allowed -- external targets have no tracker")
+        raise OwnersError(f"{path}: {context}.labels is not allowed -- external targets file nowhere themselves, so they carry no labels")
     repo = _require_repo(table, path, context)
     scope = _require_str(table, "scope", path, context)
     return {"repo": repo, "scope": scope}
@@ -210,9 +210,10 @@ def load(environ=os.environ):
         if not isinstance(unowned_repo, str) or not REPO_RE.match(unowned_repo):
             raise OwnersError(f"{path}: unowned.repo must be 'owner/name', got {unowned_repo!r}")
     else:
-        # config.toml is consulted only here, and only when the registry
-        # leaves the default to it -- an explicit $PAPERCUT_OWNERS registry
-        # that sets unowned.repo never touches config at all.
+        # With an explicit $PAPERCUT_OWNERS registry that sets unowned.repo,
+        # config.toml is never read; this is the one place that reads it on
+        # that path. The default location already consulted it in
+        # registry_path() to find the clone.
         _, unowned_repo = _resolve_ledger(environ)
     if not unowned_repo:
         raise OwnersError(f"{path}: unowned.repo is not set and [ledger].repo is not configured either")

@@ -86,9 +86,44 @@ assert_contains "valid file, human output: names an external target" "$out" "cla
 # --- 2. missing file: hard error, nothing on stdout ---
 d="$(next_dir)"
 run_loader "$d/nope.toml"
-assert_eq "missing file: non-zero exit" "1" "$([ "$rc" -ne 0 ] && echo 1 || echo 0)"
+assert_eq "missing file: exit 2 (the documented contract, not merely non-zero)" "2" "$rc"
 assert_eq "missing file: stdout empty" "" "$out"
 assert_contains "missing file: stderr names the path" "$err" "$d/nope.toml"
+
+# --- 2b. the default location: PAPERCUT_OWNERS unset, registry found under
+# the ledger dir -- via PAPERCUT_LEDGER_DIR, then via config.toml's ledger.dir.
+# This is the path a real run takes; nothing else in this file exercises it. ---
+d="$(next_dir)"
+cat >"$d/owners.toml" <<'EOF'
+[unowned]
+repo = "acme/papercuts-ledger"
+
+[owners.dotfiles]
+tracker = "gh-issue"
+repo = "acme/dotfiles"
+scope = "shell config"
+EOF
+out="$(PAPERCUT_LEDGER_DIR="$d" python3 "$loader" --json 2>"$workdir/stderr")"
+rc=$?
+assert_eq "default location via PAPERCUT_LEDGER_DIR: exit 0" "0" "$rc"
+assert_contains "default location via PAPERCUT_LEDGER_DIR: owner present" "$out" '"dotfiles"'
+
+cat >"$d/config.toml" <<EOF
+[ledger]
+dir = "$d"
+EOF
+out="$(PAPERCUT_CONFIG="$d/config.toml" python3 "$loader" --json 2>"$workdir/stderr")"
+rc=$?
+assert_eq "default location via ledger.dir: exit 0" "0" "$rc"
+assert_contains "default location via ledger.dir: owner present" "$out" '"dotfiles"'
+
+d="$(next_dir)"
+out="$(PAPERCUT_LEDGER_DIR="$d" python3 "$loader" --json 2>"$workdir/stderr")"
+rc=$?
+err="$(cat "$workdir/stderr")"
+assert_eq "default location, no registry in ledger dir: exit 2" "2" "$rc"
+assert_eq "default location, no registry in ledger dir: stdout empty" "" "$out"
+assert_contains "default location, no registry in ledger dir: stderr names the expected path" "$err" "$d/owners.toml"
 
 # --- 3. unknown tracker: validation error ---
 d="$(next_dir)"
@@ -102,6 +137,46 @@ run_loader "$d/owners.toml"
 assert_eq "unknown tracker: non-zero exit" "1" "$([ "$rc" -ne 0 ] && echo 1 || echo 0)"
 assert_eq "unknown tracker: stdout empty" "" "$out"
 assert_contains "unknown tracker: stderr names the field" "$err" "tracker"
+
+# --- 3b. repo not owner/name: validation error ---
+d="$(next_dir)"
+cat >"$d/owners.toml" <<'EOF'
+[owners.dotfiles]
+tracker = "gh-issue"
+repo = "dotfiles"
+scope = "shell config"
+EOF
+run_loader "$d/owners.toml"
+assert_eq "bad repo shape: non-zero exit" "1" "$([ "$rc" -ne 0 ] && echo 1 || echo 0)"
+assert_eq "bad repo shape: stdout empty" "" "$out"
+assert_contains "bad repo shape: stderr names the expected form" "$err" "owner/name"
+
+# --- 3c. name outside the closed vocabulary's regex: validation error ---
+d="$(next_dir)"
+cat >"$d/owners.toml" <<'EOF'
+[owners.Dotfiles]
+tracker = "gh-issue"
+repo = "acme/dotfiles"
+scope = "shell config"
+EOF
+run_loader "$d/owners.toml"
+assert_eq "bad name: non-zero exit" "1" "$([ "$rc" -ne 0 ] && echo 1 || echo 0)"
+assert_eq "bad name: stdout empty" "" "$out"
+assert_contains "bad name: stderr says the name is invalid" "$err" "not a valid name"
+
+# --- 3d. labels not an array of strings: validation error ---
+d="$(next_dir)"
+cat >"$d/owners.toml" <<'EOF'
+[owners.dotfiles]
+tracker = "gh-issue"
+repo = "acme/dotfiles"
+scope = "shell config"
+labels = "status:0_untriaged"
+EOF
+run_loader "$d/owners.toml"
+assert_eq "bad labels type: non-zero exit" "1" "$([ "$rc" -ne 0 ] && echo 1 || echo 0)"
+assert_eq "bad labels type: stdout empty" "" "$out"
+assert_contains "bad labels type: stderr names the expected type" "$err" "labels must be an array"
 
 # --- 4. missing scope: validation error ---
 d="$(next_dir)"

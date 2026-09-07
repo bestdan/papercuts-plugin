@@ -108,6 +108,11 @@ Notes that bite:
 - **A missing or unparseable registry is a hard error**, non-zero with
   nothing on stdout -- triage without a registry is not a run, so there is no
   "no owners" fallback.
+- **A name with a dot must be quoted in its header.** Names follow
+  repositories, so `papercuts.dev` is a legitimate name — but an unquoted
+  `[owners.papercuts.dev]` is, in TOML, the nested table `owners.papercuts.dev`,
+  and the loader then fails on `owners.papercuts` with "tracker must be
+  'gh-issue', got None". Write `[owners."papercuts.dev"]`.
 - **Name validation is strict**: `^[a-z0-9][a-z0-9._-]*$`, never `unowned`,
   unique across `[owners]` and `[external]`.
 
