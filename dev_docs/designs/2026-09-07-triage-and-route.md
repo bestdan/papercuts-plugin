@@ -92,6 +92,24 @@ labels = ["status:0_untriaged", "auto:human-review-needed"]
 | `.labels`       | array of string | no       | Owner-declared labels added to every issue filed there — for example the rungs a `workflow-skills` promoter expects. The plugin does not know any owner's schema; the owner declares it. |
 | `unowned.repo`  | string          | no       | Where clusters with no identified owner file. Defaults to `ledger.repo`.                                                                                                                 |
 
+**Targets you do not own are still named.** A cluster whose fix lands in a
+repo outside your control — Claude Code itself, a third-party MCP server — has
+no owner in the registry, but "unowned" alone loses what it is. An
+`[external.<name>]` table names such a target without giving it a tracker:
+
+```toml
+[external.claude-code]
+repo = "anthropics/claude-code"
+scope = "Claude Code harness behaviour: tools, sandbox, permission classifiers, transcript"
+```
+
+An external target files into `unowned.repo` like any unowned cluster, with
+`Target: claude-code (external)` in the body, so `/papercuts:reroute` can
+choose between `--reported-upstream` and a workaround owner without
+re-deriving what the issue is about. `scope` is required for the same reason an
+owner's is. Name every target — owner or external — after its repository, so
+one vocabulary serves the registry, the issue body, and the upstream link.
+
 `scripts/papercut_owners.py` is the only reader. It parses with the same
 `tomllib` path `papercut_config.py` uses, validates the shape, and exits
 non-zero with a message on any error — an unparseable registry never resolves
@@ -158,8 +176,8 @@ first failure:
 
 - every open id appears in exactly one cluster;
 - every id in the file is an open id — the model may not invent one;
-- `target` is a registry key or the literal `unowned`. A variant spelling is a
-  validation error, not a new owner. The 2026-08-16 dotfiles run wrote the
+- `target` is an owner name, an external name, or the literal `unowned`. A
+  variant spelling is a validation error, not a new owner. The 2026-08-16 dotfiles run wrote the
   harness four ways and split one improvement into three issues; a closed set
   enforced by a script closes that class of error rather than warning about it;
 - `effort` and `confidence` are each one of `low`, `medium`, `high`.
@@ -189,6 +207,12 @@ tracked index:
   one issue are a validation error the run reports; the model may not merge
   two existing issues.
 
+"Tracked" here means tracked by an **open** issue. A reroute (§6) closes the
+source and opens a successor carrying the same ids, so a span check over all
+states would refuse every such cluster forever. Closed issues still populate
+the index — a consolidated id on a since-closed issue is still tracked — but
+only open issues pick the consolidation target.
+
 **Semantic pass (model).** For each remaining cluster, the script lists the
 open issues in the cluster's target repo (all labels — the `papercut` label only
 exists from 2026-08-16 and a label-bounded scan hides the long-lived trackers
@@ -204,7 +228,8 @@ one issue is the signal worth keeping; a second issue destroys it.
 the writes. Default is a dry run that prints the plan; `--apply` files. Per
 cluster:
 
-1. **Look up the owner.** `unowned` resolves to `unowned.repo`.
+1. **Look up the owner.** `unowned` and every external name resolve to
+   `unowned.repo`; the body keeps the target name.
 2. **Label pre-flight.** The label set is the plugin's own —
    `papercut`, `priority:<severity>`, and `papercut-fix-now` when
    `effort == low` and `confidence == high` — plus the owner's declared
@@ -260,6 +285,9 @@ fixes merged because this step was left to a human.
 - Closed **without** a merged PR closer — `not planned`, a commit closer, or
   `completed` with no closer → reported in the manifest for the attended skill.
   `completed` is a claim, not evidence.
+- Closed, but every id it carries is also on an **open** issue → skipped. That
+  is a rerouted source (§6), not a fix, and it must not report itself every
+  week.
 
 Then, on the default profile only, `papercut-flush.sh --force` publishes the
 resolutions, and its confirmation line is the evidence the run summary quotes.
