@@ -62,6 +62,55 @@ Notes that bite:
   `SessionStart` hook invokes it as `--hook`, which logs and exits 0 instead.
 - Python 3.11 or newer is required, for stdlib `tomllib`.
 
+## Owners registry (`owners.toml`)
+
+The registry lives in the **ledger repo**, not the machine config -- owners
+are a property of the ledger (the set of people sharing it), so every machine
+that runs triage must see one map, and a change to it must be a reviewed
+commit.
+
+Location, most specific first. `$PAPERCUT_OWNERS` is the sole location when
+set and non-empty; otherwise it is `owners.toml` at the root of the ledger
+clone (`ledger.dir`, same resolution as above).
+
+`scripts/papercut_owners.py` is the only reader. Python consumers import
+`load()`.
+
+```toml
+[unowned]
+repo = "you/papercuts-ledger" # default: ledger.repo from config.toml
+
+[owners.dotfiles]
+tracker = "gh-issue"
+repo = "you/dotfiles"
+scope = "shell config, agent instructions, the dli command runner"
+labels = ["status:0_untriaged", "auto:human-review-needed"]
+
+[external.claude-code]
+repo = "anthropics/claude-code"
+scope = "Claude Code harness behaviour: tools, sandbox, permission classifiers, transcript"
+```
+
+| Key               | Type            | Required | What it does                                                                                                                                                  |
+| ----------------- | --------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `owners.<name>`   | table           | --       | `<name>` is the target vocabulary triage picks from. It is the closed set validated against; unique across `owners` and `external`, never `unowned`.          |
+| `.tracker`        | string          | yes      | Handler name. Only `gh-issue` is implemented.                                                                                                                 |
+| `.repo`           | string          | yes      | `owner/name` on the ledger host.                                                                                                                              |
+| `.scope`          | string          | yes      | One sentence for the clustering prompt. It is the only thing the model reads about an owner.                                                                  |
+| `.labels`         | array of string | no       | Owner-declared labels added to every issue filed there. The plugin does not know any owner's schema; the owner declares it.                                   |
+| `external.<name>` | table           | --       | Names a target with no tracker of its own -- a fix that lands outside your control (Claude Code itself, a third-party MCP server). No `tracker`, no `labels`. |
+| `.repo`           | string          | yes      | `owner/name`, for context only -- an external target still files into `unowned.repo`.                                                                         |
+| `.scope`          | string          | yes      | Same role as `owners.<name>.scope`.                                                                                                                           |
+| `unowned.repo`    | string          | no       | Where clusters with no identified owner (and external targets) file. Defaults to `ledger.repo`.                                                               |
+
+Notes that bite:
+
+- **A missing or unparseable registry is a hard error**, non-zero with
+  nothing on stdout -- triage without a registry is not a run, so there is no
+  "no owners" fallback.
+- **Name validation is strict**: `^[a-z0-9][a-z0-9._-]*$`, never `unowned`,
+  unique across `[owners]` and `[external]`.
+
 ## Environment variables
 
 Every variable below is read by at least one script under `scripts/`. Defaults
@@ -90,6 +139,13 @@ doctor read them by name.
 Python consumers call `strict_hosts()` rather than splitting that last value:
 command substitution strips trailing newlines, so the shell view of a list
 whose last pattern is the empty string loses that entry.
+
+### Owners registry — `papercut_owners.py`
+
+| Variable              | Default                              | What it does                                                                           |
+| --------------------- | ------------------------------------ | -------------------------------------------------------------------------------------- |
+| `PAPERCUT_OWNERS`     | `<ledger dir>/owners.toml`           | Registry file path. When set and non-empty it is the only location tried.              |
+| `PAPERCUT_LEDGER_DIR` | `ledger.dir`, else `~/src/papercuts` | Ledger clone path the default registry location is read under. Overrides `ledger.dir`. |
 
 ### The gate — `papercut_append.py`
 
