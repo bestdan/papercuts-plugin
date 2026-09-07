@@ -152,6 +152,15 @@ whose last pattern is the empty string loses that entry.
 | `PAPERCUT_OWNERS`     | `<ledger dir>/owners.toml`           | Registry file path. When set and non-empty it is the only location tried.              |
 | `PAPERCUT_LEDGER_DIR` | `ledger.dir`, else `~/src/papercuts` | Ledger clone path the default registry location is read under. Overrides `ledger.dir`. |
 
+### Tracked index — `papercut_tracked.py`
+
+| Variable              | Default                              | What it does                                                                                   |
+| --------------------- | ------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| `PAPERCUT_GH_CMD`     | `gh`                                 | The `gh` seam. Split with `shlex.split`. Tests point it at a stub so the listing runs offline. |
+| `PAPERCUT_OWNERS`     | `<ledger dir>/owners.toml`           | Read through `papercut_owners.py`'s loader, to find which repos to list.                       |
+| `PAPERCUT_LEDGER_DIR` | `ledger.dir`, else `~/src/papercuts` | Same, when `PAPERCUT_OWNERS` is unset.                                                         |
+| `PAPERCUT_CONFIG`     | as above                             | Same, when the registry's `unowned.repo` is unset and `ledger.repo` is needed to resolve it.   |
+
 ### The gate — `papercut_append.py`
 
 | Variable               | Default                             | What it does                                                                                                                                                      |
