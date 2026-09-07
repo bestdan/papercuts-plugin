@@ -169,14 +169,7 @@ def load(environ=os.environ):
     registry."""
     import tomllib
 
-    ledger_repo = None
-    explicit = environ.get("PAPERCUT_OWNERS")
-    if explicit:
-        path = os.path.expanduser(explicit)
-        _, ledger_repo = _resolve_ledger(environ)
-    else:
-        ledger_dir, ledger_repo = _resolve_ledger(environ)
-        path = os.path.join(ledger_dir, "owners.toml")
+    path = registry_path(environ)
 
     try:
         with open(path, "rb") as f:
@@ -217,7 +210,10 @@ def load(environ=os.environ):
         if not isinstance(unowned_repo, str) or not REPO_RE.match(unowned_repo):
             raise OwnersError(f"{path}: unowned.repo must be 'owner/name', got {unowned_repo!r}")
     else:
-        unowned_repo = ledger_repo
+        # config.toml is consulted only here, and only when the registry
+        # leaves the default to it -- an explicit $PAPERCUT_OWNERS registry
+        # that sets unowned.repo never touches config at all.
+        _, unowned_repo = _resolve_ledger(environ)
     if not unowned_repo:
         raise OwnersError(f"{path}: unowned.repo is not set and [ledger].repo is not configured either")
 

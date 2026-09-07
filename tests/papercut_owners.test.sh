@@ -204,6 +204,46 @@ assert_eq "unowned unresolvable: non-zero exit" "1" "$([ "$rc" -ne 0 ] && echo 1
 assert_eq "unowned unresolvable: stdout empty" "" "$out"
 assert_contains "unowned unresolvable: stderr names unowned.repo" "$err" "unowned.repo"
 
+# --- 8c. explicit registry with unowned.repo set: config.toml is never read,
+# so a malformed one does not fail the load (the "sole location" rule) ---
+d="$(next_dir)"
+cat >"$d/config.toml" <<'EOF'
+[ledger
+EOF
+cat >"$d/owners.toml" <<'EOF'
+[unowned]
+repo = "acme/ledger"
+
+[owners.dotfiles]
+tracker = "gh-issue"
+repo = "acme/dotfiles"
+scope = "shell config"
+EOF
+out="$(PAPERCUT_CONFIG="$d/config.toml" PAPERCUT_OWNERS="$d/owners.toml" python3 "$loader" --json 2>"$workdir/stderr")"
+rc=$?
+err="$(cat "$workdir/stderr")"
+assert_eq "sole location, unowned set: exit 0 despite broken config" "0" "$rc"
+assert_contains "sole location, unowned set: registry's repo used" "$out" '"acme/ledger"'
+
+# --- 8d. explicit registry WITHOUT unowned.repo: the default needs config,
+# and a malformed config is then a hard error that names the config file ---
+d="$(next_dir)"
+cat >"$d/config.toml" <<'EOF'
+[ledger
+EOF
+cat >"$d/owners.toml" <<'EOF'
+[owners.dotfiles]
+tracker = "gh-issue"
+repo = "acme/dotfiles"
+scope = "shell config"
+EOF
+out="$(PAPERCUT_CONFIG="$d/config.toml" PAPERCUT_OWNERS="$d/owners.toml" python3 "$loader" --json 2>"$workdir/stderr")"
+rc=$?
+err="$(cat "$workdir/stderr")"
+assert_eq "sole location, unowned absent: non-zero exit on broken config" "1" "$([ "$rc" -ne 0 ] && echo 1 || echo 0)"
+assert_eq "sole location, unowned absent: stdout empty" "" "$out"
+assert_contains "sole location, unowned absent: stderr names config.toml" "$err" "config.toml"
+
 # --- 9. bad TOML: hard error, nothing on stdout ---
 d="$(next_dir)"
 cat >"$d/owners.toml" <<'EOF'
