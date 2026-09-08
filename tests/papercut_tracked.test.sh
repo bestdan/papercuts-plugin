@@ -144,7 +144,7 @@ run_tracked() {
   local openfile="$1"
   shift
   if [ "$openfile" = "-" ]; then
-    out="$(python3 "$script" "$@" 2>"$workdir/stderr")"
+    out="$(python3 "$script" "$@" </dev/null 2>"$workdir/stderr")"
   else
     out="$(cat "$openfile" | python3 "$script" "$@" 2>"$workdir/stderr")"
   fi
