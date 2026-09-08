@@ -210,12 +210,12 @@ assert_eq "unowned alone: exit 0" "0" "$rc"
 assert_contains "unowned alone: covers unowned" "$out" "unowned (acme/papercuts-ledger): missing 5 label(s):"
 assert_not_contains "unowned alone: does not cover dotfiles" "$out" "dotfiles (acme/dotfiles):"
 
-# --- 5. unknown owner: non-zero, stderr message -----------------------------
+# --- 5. unknown owner: exit 2, stderr message -------------------------------
 dir="$(new_dir)"
 write_fixture "$dir"
 write_stub "$dir" '[]' '[]'
 run_labels "$dir" gh-stub.sh bogus
-assert_eq "unknown owner: non-zero exit" "1" "$([ "$rc" -ne 0 ] && echo 1 || echo 0)"
+assert_eq "unknown owner: exit 2" "2" "$rc"
 assert_contains "unknown owner: stderr names it" "$err" "unknown target"
 
 # --- 6. label list failing: non-zero, no create attempted even with --apply
@@ -234,11 +234,22 @@ write_stub "$dir" '[{"name":"papercut"},{"name":"priority:High"}]' '[]'
 run_labels "$dir" gh-stub.sh dotfiles
 assert_eq "case mismatch: exit 0" "0" "$rc"
 assert_contains "case mismatch: reported distinctly" "$out" "case mismatch: priority:High vs priority:high"
+assert_contains "case mismatch: not counted as missing" "$out" "dotfiles (acme/dotfiles): missing 5 label(s):"
 
 run_labels "$dir" gh-stub.sh dotfiles --apply
 assert_eq "case mismatch --apply: exit 0" "0" "$rc"
 assert_not_contains "case mismatch --apply: never created" "$(cat "$dir/create.log")" "priority:high --repo"
 assert_not_contains "case mismatch --apply: original case never created" "$(cat "$dir/create.log")" "priority:High"
+
+# --- 8. a declared label containing a comma stays one label ---------------
+dir="$(new_dir)"
+write_fixture "$dir"
+sed -i 's/labels = \["status:0_untriaged", "auto:human-review-needed"\]/labels = ["needs: triage, review"]/' "$dir/owners.toml"
+write_stub "$dir" '[{"name":"needs: triage, review"}]' '[]'
+run_labels "$dir" gh-stub.sh dotfiles --apply
+assert_eq "comma label: exit 0" "0" "$rc"
+assert_not_contains "comma label: not split" "$out" "needs: triage,"
+assert_not_contains "comma label: no bogus create" "$(cat "$dir/create.log")" "review --repo"
 
 echo
 if [ "$fail" -eq 0 ]; then

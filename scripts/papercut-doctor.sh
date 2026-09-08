@@ -387,7 +387,7 @@ if unowned_repo:
 
 for name in sorted(entries):
     repo, labels = entries[name]
-    print(f"{name}\t{repo}\t{','.join(labels)}")
+    print(f"{name}\t{repo}\t{'\x1f'.join(labels)}")
 PY
 )"
       owners_work="$(mktemp -d "${TMPDIR:-/tmp}/papercut-doctor-owners.XXXXXX")"
@@ -426,14 +426,14 @@ for item in json.load(sys.stdin):
       missing_parts=()
       missing_names=()
       target_count=0
-      while IFS=$'\t' read -r name repo labels_csv; do
+      while IFS=$'\t' read -r name repo labels_joined; do
         [ -n "$name" ] || continue
         target_count=$((target_count + 1))
         case "$failed_repos" in
           *"|$repo|"*) continue ;;
         esac
         cache="$(owners_cache_for "$repo")"
-        IFS=',' read -r -a label_arr <<<"$labels_csv"
+        IFS=$'\x1f' read -r -a label_arr <<<"$labels_joined"
         missing=""
         for label in "${label_arr[@]}"; do
           if grep -Fxq -- "$label" "$cache" 2>/dev/null; then

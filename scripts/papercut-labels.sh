@@ -86,8 +86,9 @@ if [ "$rc" -ne 0 ]; then
   exit "$rc"
 fi
 
-# One TSV line per target to process: name<TAB>repo<TAB>comma-joined required
-# labels (the five required labels first, then an owner's own labels, deduped
+# One TSV line per target to process: name<TAB>repo<TAB>required labels joined
+# on \x1f (GitHub allows commas in label names; no label name carries \x1f)
+# (the five required labels first, then an owner's own labels, deduped
 # in that order). "unowned" is a target alongside the registered owners, with
 # no extra labels; its repo may be absent from the registry JSON (no
 # [ledger].repo and no unowned.repo set), in which case it is skipped with no
@@ -123,7 +124,7 @@ else:
 
 for name in names:
     repo, labels = entries[name]
-    print(f"{name}\t{repo}\t{','.join(labels)}")
+    print(f"{name}\t{repo}\t{'\x1f'.join(labels)}")
 PY
 )"
 rc=$?
@@ -173,39 +174,36 @@ done < <(printf '%s\n' "$targets" | cut -f2 | sort -u)
 
 apply_failed=0
 
-while IFS=$'\t' read -r name repo labels_csv; do
+while IFS=$'\t' read -r name repo labels_joined; do
   [ -n "$name" ] || continue
   cache="$(cache_file_for "$repo")"
-  IFS=',' read -r -a label_arr <<<"$labels_csv"
+  IFS=$'\x1f' read -r -a label_arr <<<"$labels_joined"
   total_count=${#label_arr[@]}
 
   missing=""
-  missing_count=0
+  mismatched=""
   creatable=()
   for label in "${label_arr[@]}"; do
     if grep -Fxq -- "$label" "$cache" 2>/dev/null; then
       continue
     fi
-    missing_count=$((missing_count + 1))
     have="$(grep -Fix -m1 -- "$label" "$cache" 2>/dev/null)"
     if [ -n "$have" ]; then
-      item="case mismatch: $have vs $label"
+      mismatched="${mismatched:+$mismatched, }$have vs $label"
     else
-      item="$label"
       creatable+=("$label")
-    fi
-    if [ -z "$missing" ]; then
-      missing="$item"
-    else
-      missing="$missing, $item"
+      missing="${missing:+$missing, }$label"
     fi
   done
 
-  if [ "$missing_count" -eq 0 ]; then
+  if [ -z "$missing" ] && [ -z "$mismatched" ]; then
     printf '%s (%s): all %d label(s) present\n' "$name" "$repo" "$total_count"
     continue
   fi
-  printf '%s (%s): missing %d label(s): %s\n' "$name" "$repo" "$missing_count" "$missing"
+  report="$name ($repo):"
+  [ -n "$missing" ] && report="$report missing ${#creatable[@]} label(s): $missing"
+  [ -n "$mismatched" ] && report="$report${missing:+;} case mismatch: $mismatched"
+  printf '%s\n' "$report"
 
   [ "$apply" -eq 1 ] || continue
   for label in "${creatable[@]}"; do
