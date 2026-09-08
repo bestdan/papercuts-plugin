@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/bestdan/papercuts/schema/consolidations.v1.json",
+  "title": "Triage consolidations v1",
+  "description": "The model-written semantic-dedupe output validated by `papercut_clusters.py validate-consolidations` (dev_docs/designs/2026-09-07-triage-and-route.md §4.2). Each entry marks one `file`-class cluster as restating an already-open issue.",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "properties": {
+      "cluster": {
+        "type": "integer"
+      },
+      "issue": {
+        "type": "string",
+        "pattern": "^https?://\\S+$"
+      }
+    },
+    "required": ["cluster", "issue"],
+    "additionalProperties": false
+  }
+}
