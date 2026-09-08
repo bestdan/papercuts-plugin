@@ -131,21 +131,13 @@ script with a test.
 2. `papercut_owners.py` — the registry, validated.
 3. `papercut_tracked.py` — the **tracked index**: for every registered repo and
    the unowned repo, a map from `pc_` id prefix to the issues that carry it,
-   with each issue's state, URL, and labels. It reads issue bodies over all
-   states by listing, then searches comments only for the ids with no body hit,
-   because consolidated ids live in comments. It searches the **8-character
-   prefix**, never the full id: the full id returns zero against issues that
-   demonstrably carry it, and the 56 Linear-migrated issues carry only the
-   prefix. Both facts were measured in dotfiles triage and are this script's
-   first test cases.
-
-   The comment search is the expensive part. GitHub's search API allows about
-   30 requests a minute, so one query per prefix per repo — 100 open ids across
-   four repos is 400 calls — takes over ten minutes and risks a secondary
-   limit, which would surface as a partial index. The script batches prefixes
-   with `OR` (five operators a query, so six prefixes a call), reads the
-   rate-limit headers, and backs off instead of failing. The manifest records
-   the call count, so a run that grew expensive says so.
+   with each issue's state, URL, and labels. It lists every issue in every
+   registered repo and the unowned repo, all states, with bodies and comments,
+   through paged GraphQL, asserts the collected count against `totalCount`,
+   and greps the text locally for each open id's 8-character prefix, which
+   matches both the full id and the prefix-only form the 56 Linear-migrated
+   issues carry. No search API call is made, so there is no rate limit to
+   manage; the manifest records the listing call count.
 
 The index is the seam that makes routing safe. An issue routed to any registered
 owner stays visible to every later run, which is what lets §4.3 drop the
