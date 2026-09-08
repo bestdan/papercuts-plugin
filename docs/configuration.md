@@ -161,6 +161,16 @@ whose last pattern is the empty string loses that entry.
 | `PAPERCUT_LEDGER_DIR` | `ledger.dir`, else `~/src/papercuts` | Same, when `PAPERCUT_OWNERS` is unset.                                                         |
 | `PAPERCUT_CONFIG`     | as above                             | Same, when the registry's `unowned.repo` is unset and `ledger.repo` is needed to resolve it.   |
 
+### Triage clusters — `papercut_clusters.py`
+
+| Variable          | Default | What it does                                                                                                                                       |
+| ----------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PAPERCUT_GH_CMD` | `gh`    | The `gh` seam, read by the `candidates` subcommand only. Split with `shlex.split`. Tests point it at a stub so the candidate listing runs offline. |
+
+The registry and the open set reach this script as file paths on the command
+line (`--owners`, `--open`, `--tracked`), not through the loaders, so none of
+the other variables apply.
+
 ### The gate — `papercut_append.py`
 
 | Variable               | Default                             | What it does                                                                                                                                                      |

@@ -344,7 +344,7 @@ def cmd_candidates(args):
     output = json.dumps(result)
     if args.out:
         with open(args.out, "w", encoding="utf-8") as f:
-            f.write(output)
+            f.write(output + "\n")
     else:
         print(output)
     return 0
