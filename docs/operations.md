@@ -316,6 +316,31 @@ extractor exit leaves the transcript unprocessed on purpose, so a genuinely
 transient failure — a timeout, a model error — is retried rather than being
 recorded as done. That is also why a deterministic failure retries forever.
 
+## Provision an owner's labels
+
+Triage and routing write labels the target repo must already carry — a
+missing label fails the write outright. Check what is missing, or create it:
+
+```sh
+scripts/papercut-labels.sh <owner> --apply
+scripts/papercut-labels.sh --all --apply
+```
+
+Without `--apply`, the dry run prints one block per target: the labels still
+missing in its repo, or that all are present. It creates nothing. `<owner>`
+names one registered owner or `unowned`, the target clusters with no
+identified owner file into; `--all` covers every one of them.
+
+`--apply` runs `gh label create --force` once per missing label and reports
+each creation on its own line. A label that already exists under a different
+case is reported as a case mismatch and is never created — GitHub label names
+are case-insensitive, so creating one would just collide with the existing
+one; fix the case by hand.
+
+`papercut-doctor.sh`'s `owners` check reports the same gap, read-only: it
+never creates a label, only names which owner is missing which one and points
+at this command to fix it.
+
 ## Related
 
 - [configuration.md](configuration.md) — every path and tunable named above.

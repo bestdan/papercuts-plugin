@@ -272,6 +272,17 @@ Read-only; it never publishes.
 | `PAPERCUT_SPOOL`      | `~/.claude/papercuts/spool.jsonl`    | Its dirname is the spool directory whose mode is checked. |
 | `PAPERCUT_DETECT_CMD` | unset                                | Overrides profile detection.                              |
 | `PAPERCUT_SETTINGS`   | `~/.claude/settings.json`            | Settings file checked for the `permissions.allow` entry.  |
+| `PAPERCUT_OWNERS`     | `<ledger dir>/owners.toml`           | Registry file the `owners` check reads.                   |
+| `PAPERCUT_GH_CMD`     | `gh`                                 | The `gh` seam used to list each owner's existing labels.  |
+
+### Label provisioning — `papercut-labels.sh`
+
+| Variable              | Default                              | What it does                                                                                                          |
+| --------------------- | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
+| `PAPERCUT_GH_CMD`     | `gh`                                 | The `gh` seam used to list and create labels.                                                                         |
+| `PAPERCUT_OWNERS`     | `<ledger dir>/owners.toml`           | Registry file path, passed through to `papercut_owners.py`.                                                           |
+| `PAPERCUT_LEDGER_DIR` | `ledger.dir`, else `~/src/papercuts` | Ledger clone path, passed through to `papercut_owners.py`.                                                            |
+| `PAPERCUT_CONFIG`     | as above                             | Config file, needed only to resolve `unowned.repo` from the ledger's `repo` when the registry itself does not set it. |
 
 ### Resolutions — `papercut-resolve.sh`, `papercut_open.py`
 

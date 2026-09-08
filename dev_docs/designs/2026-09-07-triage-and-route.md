@@ -314,11 +314,12 @@ outright on a label the target lacks. Both lead to the same rule, and §4.3
 step 2 is where this design applies it: **every label the plugin is about to
 write must already exist in the target, verified before the first write.**
 
-Provisioning is attended. `scripts/papercut-labels.sh <owner>|--all [--apply]`
-lists the labels an owner is missing and creates them with `--apply`, using
+Provisioning is attended. `scripts/papercut-labels.sh <owner>|unowned|--all [--apply]`
+lists the labels a target is missing — each owner's repo, and `unowned.repo`
+because §4.3 files unowned and external clusters there — and creates them with `--apply`, using
 `gh label create --force`, which updates rather than errors when the label
 already exists. `papercut-doctor.sh` gains a read-only `owners` check that
-parses the registry and names each owner's missing labels; it never creates
+parses the registry and names each target's missing labels; it never creates
 them, matching its existing contract.
 
 Prompting for provisioning at setup time, and prompting in response to a

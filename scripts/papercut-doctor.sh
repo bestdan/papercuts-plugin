@@ -13,11 +13,17 @@
 #   hooks         hooks/hooks.json is present and its scripts are executable
 #   claude-path   `claude` is on PATH
 #   permission-entry   whether permissions.allow carries the fallback rule
+#   owners        the owners registry parses and every target's required
+#                 labels exist in its repo
 #
 # permission-entry always passes — an absent rule is the normal state, since
 # the skill authorizes its own append per turn (docs/install.md step 4). When
 # no rule is found, the doctor prints the exact entry to paste, with the
 # absolute path of THIS install resolved.
+#
+# owners is read-only: a missing registry is a PASS (capture-only install),
+# and a present one with labels missing is a FAIL naming
+# scripts/papercut-labels.sh to fix it. The doctor never creates a label.
 #
 # Env overrides (same names and meanings the rest of the pipeline uses, so a
 # doctor run can be pointed at a fixture):
@@ -28,6 +34,10 @@
 #   PAPERCUT_DETECT_CMD   overrides profile detection (tests force a profile)
 #   PAPERCUT_SETTINGS     the user's settings.json to check for the
 #                         permissions.allow entry (default: ~/.claude/settings.json)
+#   PAPERCUT_OWNERS       owners registry path, passed through to
+#                         papercut_owners.py
+#   PAPERCUT_GH_CMD       the `gh` seam used to list labels (default: gh);
+#                         tests point this at a stub
 
 set -uo pipefail
 
@@ -320,6 +330,156 @@ else
   printf '\nIf a capture ever stops on a permission prompt for papercut_append.py, add\nthis to permissions.allow in your own settings.json — the path is this\ninstall, resolved:\n\n'
   printf '  "Bash(python3 %s:*)"\n\n' "$target_path"
   printf 'docs/install.md step 4 names the cases that need the fallback rule; see it\nfor the sandbox write-allowlist entries too.\n'
+fi
+
+# --- 8. owners registry + labels --------------------------------------
+gh_cmd="${PAPERCUT_GH_CMD:-gh}"
+
+if [ -z "${PAPERCUT_OWNERS:-}" ] && [ "$config_ok" -ne 1 ]; then
+  fail owners "skipped — the config check failed, so the registry location cannot be resolved"
+else
+  owners_path_output="$(python3 -c '
+import os
+import sys
+sys.path.insert(0, sys.argv[1])
+import papercut_owners
+try:
+    print(papercut_owners.registry_path(os.environ))
+except Exception as exc:
+    print(exc, file=sys.stderr)
+    sys.exit(2)
+' "$SCRIPT_DIR" 2>&1)"
+  owners_path_rc=$?
+  if [ "$owners_path_rc" -ne 0 ]; then
+    fail owners "could not resolve the registry path: $owners_path_output"
+  elif [ ! -e "$owners_path_output" ]; then
+    pass owners "no registry at $owners_path_output; triage not configured"
+  else
+    owners_json="$(python3 "$SCRIPT_DIR/papercut_owners.py" --json 2>&1)"
+    owners_json_rc=$?
+    if [ "$owners_json_rc" -ne 0 ]; then
+      fail owners "$owners_json"
+    else
+      # Same required-label logic as papercut-labels.sh's target listing (see
+      # that script for the design): the five plugin labels for every
+      # registered owner plus that owner's own `labels`, and the five alone
+      # for `unowned` (where unowned and external clusters file, design
+      # §4.3). A deliberate copy, kept in sync by hand, the same way the
+      # borrowed-trust gate above is a copy of papercut-flush.sh's.
+      owners_targets="$(python3 - "$owners_json" <<'PY'
+import json
+import sys
+
+registry = json.loads(sys.argv[1])
+required = ["papercut", "priority:high", "priority:medium", "priority:low", "papercut-fix-now"]
+
+entries = {}
+for name, owner in registry["owners"].items():
+    labels = list(required)
+    for label in owner["labels"]:
+        if label not in labels:
+            labels.append(label)
+    entries[name] = (owner["repo"], labels)
+
+unowned_repo = (registry.get("unowned") or {}).get("repo")
+if unowned_repo:
+    entries["unowned"] = (unowned_repo, list(required))
+
+for name in sorted(entries):
+    repo, labels = entries[name]
+    print(f"{name}\t{repo}\t{'\x1f'.join(labels)}")
+PY
+)"
+      owners_work="$(mktemp -d "${TMPDIR:-/tmp}/papercut-doctor-owners.XXXXXX")"
+      trap 'rm -rf "$owners_work"' EXIT
+
+      owners_cache_for() {
+        printf '%s/existing.%s\n' "$owners_work" "$(printf '%s' "$1" | tr '/' '_')"
+      }
+
+      list_fail_parts=()
+      failed_repos=""
+      if [ -n "$owners_targets" ]; then
+        while IFS= read -r repo; do
+          [ -n "$repo" ] || continue
+          cache="$(owners_cache_for "$repo")"
+          out="$($gh_cmd label list --repo "$repo" --json name --limit 1000 2>"$owners_work/list-stderr")"
+          rc=$?
+          err="$(cat "$owners_work/list-stderr")"
+          rm -f "$owners_work/list-stderr"
+          if [ "$rc" -ne 0 ]; then
+            err_tail="$(printf '%s\n' "$err" | tail -n 5)"
+            list_fail_parts+=("$repo: gh label list failed: $err_tail")
+            failed_repos="$failed_repos|$repo|"
+            continue
+          fi
+          printf '%s' "$out" | python3 -c '
+import json
+import sys
+
+for item in json.load(sys.stdin):
+    print(item["name"])
+' >"$cache"
+        done < <(printf '%s\n' "$owners_targets" | cut -f2 | sort -u)
+      fi
+
+      missing_parts=()
+      missing_names=()
+      target_count=0
+      while IFS=$'\t' read -r name repo labels_joined; do
+        [ -n "$name" ] || continue
+        target_count=$((target_count + 1))
+        case "$failed_repos" in
+          *"|$repo|"*) continue ;;
+        esac
+        cache="$(owners_cache_for "$repo")"
+        IFS=$'\x1f' read -r -a label_arr <<<"$labels_joined"
+        missing=""
+        for label in "${label_arr[@]}"; do
+          if grep -Fxq -- "$label" "$cache" 2>/dev/null; then
+            continue
+          fi
+          have="$(grep -Fix -m1 -- "$label" "$cache" 2>/dev/null)"
+          if [ -n "$have" ]; then
+            item="case mismatch: $have vs $label"
+          else
+            item="$label"
+          fi
+          if [ -z "$missing" ]; then
+            missing="$item"
+          else
+            missing="$missing, $item"
+          fi
+        done
+        if [ -n "$missing" ]; then
+          missing_parts+=("$name ($repo) missing: $missing")
+          missing_names+=("$name")
+        fi
+      done <<<"$owners_targets"
+
+      if [ "${#missing_parts[@]}" -eq 0 ] && [ "${#list_fail_parts[@]}" -eq 0 ]; then
+        pass owners "$target_count owner(s), every required label present"
+      else
+        msg=""
+        for part in "${missing_parts[@]}" "${list_fail_parts[@]}"; do
+          if [ -z "$msg" ]; then
+            msg="$part"
+          else
+            msg="$msg; $part"
+          fi
+        done
+        if [ "${#missing_names[@]}" -eq 1 ]; then
+          msg="$msg — run scripts/papercut-labels.sh ${missing_names[0]} --apply"
+        elif [ "${#missing_names[@]}" -gt 1 ]; then
+          msg="$msg — run scripts/papercut-labels.sh --all --apply"
+        fi
+        if [ "${#list_fail_parts[@]}" -gt 0 ]; then
+          msg="$msg; run the doctor unsandboxed with gh authenticated"
+        fi
+        fail owners "$msg"
+      fi
+    fi
+  fi
 fi
 
 if [ "$failures" -ne 0 ]; then
