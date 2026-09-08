@@ -258,7 +258,7 @@ cat >"$fixtures/acme__gamma.json" <<'EOF'
 EOF
 export PAPERCUT_OWNERS="$owners_gamma"
 run_tracked "-"
-assert_eq "case 5: totalCount mismatch: non-zero exit" "1" "$([ "$rc" -ne 0 ] && echo 1 || echo 0)"
+assert_eq "case 5: totalCount mismatch: exit 1" "1" "$rc"
 assert_contains "case 5: stderr names the repo" "$err" "acme/gamma"
 assert_contains "case 5: stderr names the collected count" "$err" "2"
 assert_contains "case 5: stderr names totalCount" "$err" "5"
@@ -323,7 +323,7 @@ repo = "acme/delta"
 EOF
 export PAPERCUT_OWNERS="$owners_delta"
 run_tracked "-"
-assert_eq "case 11: gh failure on graphql: non-zero exit" "1" "$([ "$rc" -ne 0 ] && echo 1 || echo 0)"
+assert_eq "case 11: gh failure on graphql: exit 1" "1" "$rc"
 
 echo
 if [ "$fail" -eq 0 ]; then

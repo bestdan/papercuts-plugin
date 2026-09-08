@@ -192,7 +192,10 @@ def _parse_concatenated_json(text):
 def list_repo_issues(owner, name):
     """Run the paged GraphQL listing for one repo. Returns the list of issue
     nodes. Raises TrackedError on a gh failure or a totalCount mismatch."""
-    stdout = _run_gh(["api", "graphql", "--paginate", "--slurp", "-F", f"owner={owner}", "-F", f"name={name}", "-f", f"query={QUERY}"])
+    try:
+        stdout = _run_gh(["api", "graphql", "--paginate", "--slurp", "-F", f"owner={owner}", "-F", f"name={name}", "-f", f"query={QUERY}"])
+    except TrackedError as exc:
+        raise TrackedError(f"{owner}/{name}: {exc}") from None
     pages = json.loads(stdout)
 
     nodes = []
@@ -212,7 +215,10 @@ def list_repo_issues(owner, name):
 def fetch_all_comments(owner, name, number):
     """Fetch every comment body for one issue via the REST endpoint, for an
     issue whose comments.totalCount exceeds the GraphQL node cap."""
-    stdout = _run_gh(["api", "--paginate", f"repos/{owner}/{name}/issues/{number}/comments"])
+    try:
+        stdout = _run_gh(["api", "--paginate", f"repos/{owner}/{name}/issues/{number}/comments"])
+    except TrackedError as exc:
+        raise TrackedError(f"{owner}/{name}#{number}: {exc}") from None
     comments = _parse_concatenated_json(stdout)
     return [c.get("body") or "" for c in comments if isinstance(c, dict)]
 
@@ -283,7 +289,6 @@ def main():
 
     parser = argparse.ArgumentParser(description="Build the tracked index across registered repos.")
     parser.add_argument("--open", metavar="FILE", help="open-set JSONL file (default: stdin)")
-    parser.add_argument("--json", action="store_true", help="print the index as JSON (the default and only output)")
     args = parser.parse_args()
 
     if args.open:
