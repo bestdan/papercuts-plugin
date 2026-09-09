@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/bestdan/papercuts/schema/clusters.v1.json",
+  "title": "Triage clusters v1",
+  "description": "The model-written clustering output validated by `papercut_clusters.py validate-clusters` (dev_docs/designs/2026-09-07-triage-and-route.md §4.1). This describes exactly the five fields the model writes, and only the STRUCTURAL shape of each -- the semantic checks (an id actually open, a target actually in the registry, effort/confidence values, improvement length) are separate script-level checks with their own messages, so a schema violation and a semantic violation are never reported the same way. `severity`, `class`, and `issue` are computed by the script and appear only in the enriched output printed by that subcommand -- they are never present in the model's input file.",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "properties": {
+      "improvement": {
+        "type": "string"
+      },
+      "papercut_ids": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "string"
+        }
+      },
+      "target": {
+        "type": "string"
+      },
+      "effort": {
+        "type": "string"
+      },
+      "confidence": {
+        "type": "string"
+      }
+    },
+    "required": ["improvement", "papercut_ids", "target", "effort", "confidence"],
+    "additionalProperties": false
+  }
+}
