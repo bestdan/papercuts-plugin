@@ -140,6 +140,49 @@ enriched_main="$workdir/enriched-main.json"
 printf '%s' "$out" >"$enriched_main"
 
 # =====================================================================
+# Severity vocabulary: a record severity outside low/medium/high is
+# ignored rather than ranked, and a cluster with no valid severity at all
+# falls back to "low". The open set is the model's input, but the
+# severity comes from the ledger, which grandfathers rows written before
+# the field existed -- so both cases are reachable from real data.
+# =====================================================================
+
+id_f="pc_ffffffff-0000-4000-8000-000000000006"
+id_g="pc_99999999-0000-4000-8000-000000000007"
+id_h="pc_88888888-0000-4000-8000-000000000008"
+id_i="pc_77777777-0000-4000-8000-000000000009"
+id_j="pc_66666666-0000-4000-8000-000000000010"
+
+open_sev="$workdir/open-sev.jsonl"
+cat >"$open_sev" <<EOF
+{"id": "$id_f", "severity": "critical"}
+{"id": "$id_g", "severity": "low"}
+{"id": "$id_h"}
+{"id": "$id_i", "severity": "high"}
+{"id": "$id_j", "severity": null}
+EOF
+
+tracked_sev="$workdir/tracked-sev.json"
+cat >"$tracked_sev" <<'EOF'
+{"index": {}, "calls": {"list": 0, "comments": 0}}
+EOF
+
+clusters_sev="$workdir/clusters-sev.json"
+cat >"$clusters_sev" <<EOF
+[
+  {"improvement": "out-of-vocabulary severity beside a valid one", "papercut_ids": ["$id_f", "$id_i"], "target": "alpha", "effort": "low", "confidence": "high"},
+  {"improvement": "missing severity beside a valid one", "papercut_ids": ["$id_h", "$id_g"], "target": "alpha", "effort": "low", "confidence": "high"},
+  {"improvement": "no valid severity anywhere in the cluster", "papercut_ids": ["$id_j"], "target": "alpha", "effort": "low", "confidence": "high"}
+]
+EOF
+
+run_clusters validate-clusters --open "$open_sev" --tracked "$tracked_sev" --owners "$registry_main" "$clusters_sev"
+assert_eq "severity vocabulary: exit 0" "0" "$rc"
+assert_eq "cluster 0: 'critical' is ignored, not ranked above high" "high" "$(jget "d[0]['severity']")"
+assert_eq "cluster 1: a record with no severity field is ignored" "low" "$(jget "d[1]['severity']")"
+assert_eq "cluster 2: no valid severity in the cluster falls back to low" "low" "$(jget "d[2]['severity']")"
+
+# =====================================================================
 # validate-clusters: one failing fixture per rule, each on its own message.
 # =====================================================================
 
