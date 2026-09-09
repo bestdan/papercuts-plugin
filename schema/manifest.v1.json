@@ -58,7 +58,7 @@
       "items": {
         "type": "object",
         "properties": {
-          "owner": { "type": "string" },
+          "repo": { "type": "string" },
           "labels": {
             "type": "array",
             "items": { "type": "string" }
@@ -73,14 +73,15 @@
                   "minItems": 1,
                   "items": { "type": "string" }
                 },
+                "target": { "type": "string" },
                 "title": { "type": "string" }
               },
-              "required": ["papercut_ids", "title"],
+              "required": ["papercut_ids", "target", "title"],
               "additionalProperties": false
             }
           }
         },
-        "required": ["owner", "labels", "clusters"],
+        "required": ["repo", "labels", "clusters"],
         "additionalProperties": false
       }
     },

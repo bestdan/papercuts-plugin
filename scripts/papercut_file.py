@@ -221,7 +221,7 @@ def render_body(cluster, repo, registry, open_records):
     ]
     for pid in cluster["papercut_ids"]:
         title = open_records.get(pid, {}).get("title", "")
-        lines.append(f"- {pid} — {title}")
+        lines.append(f"- {pid} — {title}" if title else f"- {pid}")
 
     fixes = []
     for pid in cluster["papercut_ids"]:
@@ -240,7 +240,7 @@ def render_consolidation_comment(cluster, open_records):
     lines = ["**Consolidation:**", ""]
     for pid in cluster["papercut_ids"]:
         title = open_records.get(pid, {}).get("title", "")
-        lines.append(f"- {pid} — {title}")
+        lines.append(f"- {pid} — {title}" if title else f"- {pid}")
     return "\n".join(lines) + "\n"
 
 
@@ -379,9 +379,12 @@ def cmd_plan(clusters, registry, open_records, tracked_data, apply):
         entries = by_repo[repo]
         held.append(
             {
-                "owner": repo,
+                "repo": repo,
                 "labels": held_repos[repo],
-                "clusters": [{"papercut_ids": c["papercut_ids"], "title": c["improvement"]} for _, c in entries],
+                "clusters": [
+                    {"papercut_ids": c["papercut_ids"], "target": c["target"], "title": c["improvement"]}
+                    for _, c in entries
+                ],
             }
         )
         print(f"held    {repo}  missing={','.join(held_repos[repo])}  clusters={len(entries)}")
@@ -405,7 +408,10 @@ def cmd_plan(clusters, registry, open_records, tracked_data, apply):
                 "url": url or "",
             }
         )
-        print(f"file    {repo}  labels={','.join(labels)}  {title}")
+        line = f"file    {repo}  labels={','.join(labels)}  {title}"
+        if url:
+            line += f"  {url}"
+        print(line)
 
     consolidated = []
     for i, c in consolidate_entries:

@@ -112,10 +112,12 @@ cat >"$clusters_json" <<EOF
   {"improvement": "Gamma consolidation candidate", "papercut_ids": ["$id_c", "$id_g"], "target": "gamma", "effort": "medium", "confidence": "medium", "severity": "medium", "class": "file", "fix_now": true},
   {"improvement": "Delta minor thing", "papercut_ids": ["$id_d"], "target": "delta", "effort": "medium", "confidence": "medium", "severity": "low", "class": "file"},
   {"improvement": "Theta consolidation", "papercut_ids": ["$id_e", "$id_f"], "target": "theta", "effort": "low", "confidence": "low", "severity": "low", "class": "consolidate", "issue": "https://github.com/acme/theta/issues/9"},
-  {"improvement": "External claude-code thing", "papercut_ids": ["$id_a"], "target": "claude-code", "effort": "low", "confidence": "low", "severity": "low", "class": "noop"},
-  {"improvement": "Unowned thing", "papercut_ids": ["$id_a"], "target": "unowned", "effort": "low", "confidence": "low", "severity": "low", "class": "noop"},
+  {"improvement": "External claude-code thing", "papercut_ids": ["$id_a"], "target": "claude-code", "effort": "low", "confidence": "low", "severity": "low", "class": "file"},
+  {"improvement": "Unowned thing", "papercut_ids": ["$id_a"], "target": "unowned", "effort": "low", "confidence": "low", "severity": "low", "class": "file"},
   {"improvement": "Epsilon high severity thing", "papercut_ids": ["$id_h"], "target": "epsilon", "effort": "high", "confidence": "low", "severity": "high", "class": "file"},
-  {"improvement": "Epsilon low severity thing", "papercut_ids": ["$id_i"], "target": "epsilon", "effort": "low", "confidence": "high", "severity": "low", "class": "file"}
+  {"improvement": "Epsilon low severity thing", "papercut_ids": ["$id_i"], "target": "epsilon", "effort": "low", "confidence": "high", "severity": "low", "class": "file"},
+  {"improvement": "A noop cluster", "papercut_ids": ["$id_a"], "target": "alpha", "effort": "low", "confidence": "low", "severity": "low", "class": "noop"},
+  {"improvement": "Another noop cluster", "papercut_ids": ["$id_b"], "target": "beta", "effort": "low", "confidence": "low", "severity": "low", "class": "noop"}
 ]
 EOF
 
@@ -126,6 +128,17 @@ unknown_target_clusters_json="$workdir/clusters-unknown-target.json"
 cat >"$unknown_target_clusters_json" <<EOF
 [
   {"improvement": "Unknown target thing", "papercut_ids": ["$id_a"], "target": "no-such-owner", "effort": "low", "confidence": "low", "severity": "low", "class": "file"}
+]
+EOF
+
+# A titleless id -- present in no open record at all -- for the dangling
+# em-dash guard below. Kept out of clusters.json/open.jsonl so it does not
+# perturb the dry-run/apply/noop-count scenarios.
+id_k="pc_55555555-0000-4000-8000-000000000011"
+dangling_clusters_json="$workdir/clusters-dangling.json"
+cat >"$dangling_clusters_json" <<EOF
+[
+  {"improvement": "Dangling title thing", "papercut_ids": ["$id_k"], "target": "alpha", "effort": "low", "confidence": "low", "severity": "low", "class": "noop"}
 ]
 EOF
 
@@ -142,9 +155,10 @@ EOF
 # =====================================================================
 
 render_piece() {
-  # render_piece <title|body> <cluster-index> -- prints exactly that piece,
-  # nothing else, no trailing blank line.
-  python3 - "$repo_root" "$clusters_json" "$owners_json" "$open_jsonl" "$1" "$2" <<'PY'
+  # render_piece <title|body> <cluster-index> [clusters-file] -- prints
+  # exactly that piece, nothing else, no trailing blank line. Defaults to
+  # $clusters_json when no clusters-file is given.
+  python3 - "$repo_root" "${3:-$clusters_json}" "$owners_json" "$open_jsonl" "$1" "$2" <<'PY'
 import importlib.util
 import json
 import sys
@@ -213,6 +227,32 @@ run_file --render 0 --clusters "$unknown_target_clusters_json" --owners "$owners
 assert_eq "render unknown target: exit 1, not a traceback" "1" "$rc"
 assert_contains "render unknown target: clean error message" "$err" "unknown target"
 assert_not_contains "render unknown target: no Python traceback" "$err" "Traceback"
+
+# Dangling em-dash guard: a papercut id with no title anywhere (no open
+# record at all) must render as a bare "- {pid}" line, never "- {pid} —"
+# with nothing after it, in both render_body and render_consolidation_comment.
+dangling_body="$(render_piece body 0 "$dangling_clusters_json")"
+assert_contains "render_body: titleless id renders as a bare line" "$dangling_body" "- $id_k"
+assert_not_contains "render_body: no dangling em-dash after a titleless id" "$dangling_body" "$id_k —"
+
+dangling_comment="$(python3 - "$repo_root" "$dangling_clusters_json" "$open_jsonl" <<'PY'
+import importlib.util
+import json
+import sys
+
+repo_root, clusters_path, open_path = sys.argv[1:4]
+
+spec = importlib.util.spec_from_file_location("papercut_file", f"{repo_root}/scripts/papercut_file.py")
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+
+clusters = json.load(open(clusters_path, encoding="utf-8"))
+open_records = module.load_open_records(open_path)
+sys.stdout.write(module.render_consolidation_comment(clusters[0], open_records))
+PY
+)"
+assert_contains "render_consolidation_comment: titleless id renders as a bare line" "$dangling_comment" "- $id_k"
+assert_not_contains "render_consolidation_comment: no dangling em-dash after a titleless id" "$dangling_comment" "$id_k —"
 
 # =====================================================================
 # gh stub for the plan/apply scenarios below.
@@ -308,14 +348,17 @@ triage_dir="$workdir/triage"
 export PAPERCUT_TRIAGE_DIR="$triage_dir"
 
 # =====================================================================
-# Dry run: alpha (default fix-now, label missing) is held; nothing is
-# written to gh or the manifest.
+# Dry run: alpha (default fix-now, label missing) is held; acme/ledger is
+# held too (no fixture -> empty existing labels), reached by two DIFFERENT
+# target names (claude-code, an external; unowned, the literal) that both
+# resolve to it -- nothing is written to gh or the manifest.
 # =====================================================================
 
 : >"$call_log"
 run_file --clusters "$clusters_json" --owners "$owners_json" --open "$open_jsonl" --tracked "$tracked_json"
 assert_eq "dry run: exit 0" "0" "$rc"
 assert_contains "dry run: alpha reported held" "$out" "held    acme/alpha  missing=papercut-fix-now"
+assert_contains "dry run: acme/ledger (two colliding targets) reported held" "$out" "held    acme/ledger  missing=papercut,priority:low  clusters=2"
 assert_not_contains "dry run: no gh write call at all (label list is read-only)" "$(cat "$call_log")" "create"
 assert_not_contains "dry run: no gh write call at all (label list is read-only)" "$(cat "$call_log")" "comment"
 assert_eq "dry run: no manifest file written" "no" "$([ -f "$triage_dir"/*.json ] 2>/dev/null && echo yes || echo no)"
@@ -360,6 +403,10 @@ assert_eq "apply: held owner (acme/alpha) gets no issue create" "none" "$held_al
 # the acme/beta fixture never carries that label.
 assert_contains "apply: beta (fix_now:false override) filed, not held" "$out" "file    acme/beta"
 assert_not_contains "apply: beta not held" "$out" "held    acme/beta"
+
+# --apply prints the created issue URL on the file line (it exists only in
+# the manifest otherwise); the dry-run line above stays exactly as it was.
+assert_contains "apply: file line includes the created issue URL" "$out" "file    acme/beta  labels=papercut,priority:medium  Beta friction cleanup  https://github.com/acme/beta/issues/999"
 
 # fix_now override: gamma's cluster has fix_now:true despite medium/medium,
 # so papercut-fix-now IS required -- and present in its fixture, so it files.
@@ -473,9 +520,16 @@ assert_eq "apply: manifest validates against schema/manifest.v1.json" "" "$schem
 out="$manifest_json"
 assert_eq "manifest: 5 filed" "5" "$(jget "len(d['filed'])")"
 assert_eq "manifest: 1 consolidated" "1" "$(jget "len(d['consolidated'])")"
-assert_eq "manifest: 1 held" "1" "$(jget "len(d['held'])")"
-assert_eq "manifest: held names acme/alpha" "acme/alpha" "$(jget "d['held'][0]['owner']")"
-assert_eq "manifest: held names the missing label" "papercut-fix-now" "$(jget "d['held'][0]['labels'][0]")"
+assert_eq "manifest: 2 held" "2" "$(jget "len(d['held'])")"
+assert_eq "manifest: held[0] names acme/alpha (repo, not owner)" "acme/alpha" "$(jget "d['held'][0]['repo']")"
+assert_eq "manifest: held[0] names the missing label" "papercut-fix-now" "$(jget "d['held'][0]['labels'][0]")"
+
+# The acme/ledger held entry is reached by two DIFFERENT target names
+# (claude-code, an external target; unowned, the literal) that both resolve
+# to it -- each cluster record must keep its own target, or this collapses
+# into an entry nothing can attribute back to either target.
+assert_eq "manifest: acme/ledger held entry has 2 clusters" "2" "$(jget "len(next(h for h in d['held'] if h['repo']=='acme/ledger')['clusters'])")"
+assert_eq "manifest: acme/ledger held clusters carry both distinct target names" "claude-code,unowned" "$(jget "','.join(c['target'] for c in next(h for h in d['held'] if h['repo']=='acme/ledger')['clusters'])")"
 assert_eq "manifest: noop count is 2" "2" "$(jget "d['noop']")"
 assert_eq "manifest: calls copied verbatim from --tracked" "5" "$(jget "d['calls']['list']")"
 assert_eq "manifest: calls copied verbatim from --tracked" "1" "$(jget "d['calls']['comments']")"
