@@ -171,6 +171,18 @@ The registry and the open set reach this script as file paths on the command
 line (`--owners`, `--open`, `--tracked`), not through the loaders, so none of
 the other variables apply.
 
+### Filing — `papercut_file.py`
+
+| Variable              | Default                      | What it does                                                                                         |
+| --------------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `PAPERCUT_GH_CMD`     | `gh`                         | The `gh` seam used for label listing, `issue create`, and `issue comment`. Split with `shlex.split`. |
+| `PAPERCUT_TRIAGE_DIR` | `~/.claude/papercuts/triage` | Where the run manifest, `<run-date>.json`, is written. Only `--apply` writes it.                     |
+
+The registry, the open set, the enriched clusters, and the tracked index
+reach this script as file paths on the command line (`--owners`, `--open`,
+`--clusters`, `--tracked`), not through the loaders, so none of the other
+variables apply.
+
 ### The gate — `papercut_append.py`
 
 | Variable               | Default                             | What it does                                                                                                                                                      |
