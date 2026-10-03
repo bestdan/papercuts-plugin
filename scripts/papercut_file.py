@@ -50,12 +50,15 @@ Re-run guard: before any gh call, every manifest already in
 $PAPERCUT_TRIAGE_DIR is read for the papercut ids it records as filed or
 consolidated. A file cluster with any such id is skipped -- a stale
 --clusters file re-applied, the same day or any later one, must not file
-the same papercuts twice. A consolidate cluster is skipped when every id
-already points at its own issue (the comment was posted), or when any id
-points at a different one (stale). A partial overlap prints "regenerate
---clusters": only papercut_clusters.py can decide what that cluster
-should become. Skipped clusters take no part in the label pre-flight and
-are not written to the manifest. Dry run and --apply print the same plan.
+the same papercuts twice; when only some of its ids are recorded, the skip
+line adds "regenerate --clusters", since only papercut_clusters.py can
+decide what that cluster should become. A consolidate cluster always
+carries ids already filed on its own issue, so those do not skip it: it is
+skipped when every id already points at that issue (the comment was
+posted), or, with "regenerate --clusters", when any id points at a
+different issue. Otherwise its comment is posted, naming every id.
+Skipped clusters take no part in the label pre-flight and are not written
+to the manifest. Dry run and --apply print the same plan.
 
 Manifest: {run_date, filed, consolidated, held, noop, calls} is written to
 $PAPERCUT_TRIAGE_DIR/<run-date>.json (default
