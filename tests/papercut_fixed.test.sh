@@ -288,6 +288,25 @@ assert_eq "resolve failure: exit 1" "1" "$rc"
 assert_contains "resolve failure: names the id" "$err" "papercut-resolve.sh $id_a failed"
 assert_not_contains "resolve failure: no traceback" "$err" "Traceback"
 
+# The already-resolved skip matches papercut-resolve.sh's refusal text, which
+# the stub above copies. Pin the real script to it, so a rewording there fails
+# here instead of turning every real re-run into a hard failure.
+assert_contains "papercut-resolve.sh still refuses with the text papercut_fixed.py matches" \
+  "$(cat "$repo_root/scripts/papercut-resolve.sh")" "already has a resolution"
+
+# A closer query that fails, or answers in an unexpected shape, is a clean
+# error naming the issue, not a traceback.
+rm -rf "$PAPERCUT_TRIAGE_DIR"
+PAPERCUT_GH_CMD="bash -c 'echo boom >&2; exit 1' --" run_fixed --tracked "$tracked_json" --apply
+assert_eq "gh failure: exit 1" "1" "$rc"
+assert_contains "gh failure: names the issue" "$err" "gh api graphql for acme/alpha#1 failed"
+assert_not_contains "gh failure: no traceback" "$err" "Traceback"
+
+PAPERCUT_GH_CMD="bash -c 'echo \"{\\\"data\\\":{\\\"repository\\\":{\\\"issue\\\":null}}}\"' --" run_fixed --tracked "$tracked_json" --apply
+assert_eq "null issue: exit 1" "1" "$rc"
+assert_contains "null issue: unexpected output, naming the issue" "$err" "gh api graphql for acme/alpha#1: unexpected output"
+assert_not_contains "null issue: no traceback" "$err" "Traceback"
+
 unset PAPERCUT_GH_CMD PAPERCUT_RESOLVE_CMD PAPERCUT_FLUSH_CMD PAPERCUT_DETECT_CMD PAPERCUT_TRIAGE_DIR
 
 echo
