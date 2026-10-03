@@ -1,0 +1,10 @@
+Fix the alpha thing
+
+Target: alpha
+Repo: acme/alpha
+Severity: high · Effort: low · Confidence: high
+
+Source papercuts:
+- pc_aaaaaaaa-0000-4000-8000-000000000001 — The alpha widget breaks on save
+
+Suggested fix: Guard against null before save.

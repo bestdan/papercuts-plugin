@@ -305,6 +305,15 @@ resolutions, and the manifest is a per-run artifact at
 `PAPERCUT_TRIAGE_DIR` — the same local-state convention every other path in
 `docs/configuration.md` follows.
 
+Filing also reads every earlier manifest in that directory before any write,
+as a local re-run guard, so re-applying a stale `--clusters` file, the same
+day or later, files nothing twice. A file cluster is skipped if a prior run
+filed or consolidated any of its papercut ids. A consolidate cluster always
+carries ids already filed on its own issue, so it is skipped only when every
+id already points at that issue, or when any id points at a different one. A
+same-day re-run appends to the manifest's `filed` and `consolidated` rather
+than replacing them.
+
 ## 5. The label criterion, restated for filing
 
 dotfiles#709 §4.1 established that `gh issue transfer` silently drops labels the
