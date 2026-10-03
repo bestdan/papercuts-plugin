@@ -108,8 +108,8 @@ clusters_json="$workdir/clusters.json"
 cat >"$clusters_json" <<EOF
 [
   {"improvement": "Fix the alpha thing", "papercut_ids": ["$id_a"], "target": "alpha", "effort": "low", "confidence": "high", "severity": "high", "class": "file"},
-  {"improvement": "Beta friction cleanup", "papercut_ids": ["$id_b"], "target": "beta", "effort": "low", "confidence": "high", "severity": "medium", "class": "file", "fix_now": false},
-  {"improvement": "Gamma consolidation candidate", "papercut_ids": ["$id_c", "$id_g"], "target": "gamma", "effort": "medium", "confidence": "medium", "severity": "medium", "class": "file", "fix_now": true},
+  {"improvement": "Beta friction cleanup", "papercut_ids": ["$id_b"], "target": "beta", "effort": "medium", "confidence": "high", "severity": "medium", "class": "file"},
+  {"improvement": "Gamma consolidation candidate", "papercut_ids": ["$id_c", "$id_g"], "target": "gamma", "effort": "low", "confidence": "high", "severity": "medium", "class": "file"},
   {"improvement": "Delta minor thing", "papercut_ids": ["$id_d"], "target": "delta", "effort": "medium", "confidence": "medium", "severity": "low", "class": "file"},
   {"improvement": "Theta consolidation", "papercut_ids": ["$id_e", "$id_f"], "target": "theta", "effort": "low", "confidence": "low", "severity": "low", "class": "consolidate", "issue": "https://github.com/acme/theta/issues/9"},
   {"improvement": "External claude-code thing", "papercut_ids": ["$id_a"], "target": "claude-code", "effort": "low", "confidence": "low", "severity": "low", "class": "file"},
@@ -196,7 +196,7 @@ assert_contains "render cluster 0: --render's combined output includes the title
 assert_contains "render cluster 0: --render's combined output includes the body" "$out" "$body_out"
 
 run_file --render 1 --clusters "$clusters_json" --owners "$owners_json" --open "$open_jsonl" --tracked "$tracked_json"
-assert_contains "render cluster 1 (external suggested_fix skipped): no 'Suggested fix' line" "$out" ""
+assert_contains "render cluster 1: renders cluster 1's own title" "$out" "Beta friction cleanup"
 assert_not_contains "render cluster 1: no Suggested fix line (empty suggested_fix skipped)" "$out" "Suggested fix:"
 
 run_file --render 2 --clusters "$clusters_json" --owners "$owners_json" --open "$open_jsonl" --tracked "$tracked_json"
@@ -398,19 +398,19 @@ PY
 )"
 assert_eq "apply: held owner (acme/alpha) gets no issue create" "none" "$held_alpha_create"
 
-# fix_now override: beta's cluster has fix_now:false despite low/high, so its
+# beta's cluster is medium effort, so not fix-now: its
 # required label set excludes papercut-fix-now -- it is not held even though
 # the acme/beta fixture never carries that label.
-assert_contains "apply: beta (fix_now:false override) filed, not held" "$out" "file    acme/beta"
+assert_contains "apply: beta (not fix-now) filed, not held" "$out" "file    acme/beta"
 assert_not_contains "apply: beta not held" "$out" "held    acme/beta"
 
 # --apply prints the created issue URL on the file line (it exists only in
 # the manifest otherwise); the dry-run line above stays exactly as it was.
 assert_contains "apply: file line includes the created issue URL" "$out" "file    acme/beta  labels=papercut,priority:medium  Beta friction cleanup  https://github.com/acme/beta/issues/999"
 
-# fix_now override: gamma's cluster has fix_now:true despite medium/medium,
+# gamma's cluster is low effort, high confidence -- fix-now --
 # so papercut-fix-now IS required -- and present in its fixture, so it files.
-assert_contains "apply: gamma (fix_now:true override) filed" "$out" "file    acme/gamma"
+assert_contains "apply: gamma (fix-now) filed" "$out" "file    acme/gamma"
 
 # delta: no fix-now cluster at all -- required set excludes papercut-fix-now,
 # so its fixture's missing papercut-fix-now does not hold it back.
@@ -566,6 +566,108 @@ resolved_len="$(printf '%s' "$merged" | python3 -c "import json,sys; print(len(j
 flush_val="$(printf '%s' "$merged" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('flush', ''))")"
 assert_eq "merge re-run: preserves the resolved section this script does not own" "1" "$resolved_len"
 assert_eq "merge re-run: preserves the flush section this script does not own" "resolutions spooled, not published (strict profile)" "$flush_val"
+
+# =====================================================================
+# Re-run guard, same day: the re-run above used the SAME clusters file.
+# Every cluster the first run wrote is skipped -- no second issue, no
+# second comment -- and the manifest keeps the first run's entries.
+# =====================================================================
+
+assert_not_contains "same-day re-run: no issue create" "$(cat "$call_log")" "create"
+assert_not_contains "same-day re-run: no issue comment" "$(cat "$call_log")" "comment"
+assert_contains "same-day re-run: beta skipped with its earlier URL" "$out" "skip    already filed https://github.com/acme/beta/issues/999  Beta friction cleanup"
+assert_contains "same-day re-run: theta's comment not re-posted" "$out" "skip    already consolidated https://github.com/acme/theta/issues/9  Theta consolidation"
+out="$merged"
+assert_eq "same-day re-run: manifest still has the first run's 5 filed" "5" "$(jget "len(d['filed'])")"
+assert_eq "same-day re-run: manifest still has the first run's 1 consolidated" "1" "$(jget "len(d['consolidated'])")"
+
+# The case the guard exists for: alpha was held for papercut-fix-now; the
+# label is created and the same command re-run. Alpha files, nothing else
+# does, and the manifest appends alpha rather than replacing the first run.
+cat >"$fixtures/labels__acme__alpha.json" <<'EOF'
+[{"name": "papercut"}, {"name": "priority:high"}, {"name": "status:0_untriaged"}, {"name": "papercut-fix-now"}]
+EOF
+: >"$call_log"
+run_file --clusters "$clusters_json" --owners "$owners_json" --open "$open_jsonl" --tracked "$tracked_json" --apply
+assert_eq "label-fixed re-run: exit 0" "0" "$rc"
+assert_eq "label-fixed re-run: exactly one issue create" "1" "$(grep -cx 'create' "$call_log")"
+assert_contains "label-fixed re-run: it is alpha" "$out" "file    acme/alpha"
+assert_not_contains "label-fixed re-run: alpha no longer held" "$out" "held    acme/alpha"
+out="$(cat "$manifest_file")"
+assert_eq "label-fixed re-run: filed appended (5 + alpha)" "6" "$(jget "len(d['filed'])")"
+# Order, not just count: a replacing write that re-filed all six would also
+# leave six entries, but with alpha (cluster 0) first rather than last.
+assert_eq "label-fixed re-run: first run's entries kept, alpha appended after them" "beta,gamma,delta,epsilon,epsilon,alpha" "$(jget "','.join(f['target'] for f in d['filed'])")"
+assert_eq "label-fixed re-run: held is the latest run's (ledger only)" "acme/ledger" "$(jget "','.join(h['repo'] for h in d['held'])")"
+
+# =====================================================================
+# Re-run guard, earlier day: a stale clusters file against a manifest from
+# a different date is still caught. A fresh triage dir holds one prior-date
+# manifest; this is a dry run, which prints the same plan --apply would.
+# =====================================================================
+
+prior_dir="$workdir/triage-prior"
+mkdir -p "$prior_dir"
+cat >"$prior_dir/2000-01-01.json" <<EOF
+{"run_date": "2000-01-01",
+ "filed": [
+   {"papercut_ids": ["$id_b"], "target": "beta", "repo": "acme/beta", "title": "Beta friction cleanup", "labels": ["papercut"], "url": "https://github.com/acme/beta/issues/5"},
+   {"papercut_ids": ["$id_c"], "target": "gamma", "repo": "acme/gamma", "title": "Gamma", "labels": ["papercut"], "url": "https://github.com/acme/gamma/issues/6"},
+   {"papercut_ids": ["$id_e"], "target": "theta", "repo": "acme/theta", "title": "Theta", "labels": ["papercut"], "url": "https://github.com/acme/theta/issues/9"}
+ ],
+ "consolidated": [], "held": [], "noop": 0, "calls": {}}
+EOF
+export PAPERCUT_TRIAGE_DIR="$prior_dir"
+: >"$call_log"
+run_file --clusters "$clusters_json" --owners "$owners_json" --open "$open_jsonl" --tracked "$tracked_json"
+assert_eq "prior-date guard: exit 0" "0" "$rc"
+assert_contains "prior-date guard: beta skipped against an earlier day's manifest" "$out" "skip    already filed https://github.com/acme/beta/issues/5  Beta friction cleanup"
+assert_contains "prior-date guard: gamma (one of two ids filed) says regenerate" "$out" "skip    partly filed https://github.com/acme/gamma/issues/6  Gamma consolidation candidate  (regenerate --clusters)"
+assert_not_contains "prior-date guard: skipped beta takes no part in the pre-flight" "$(cat "$call_log")" "acme/beta"
+# theta's id_e was filed onto theta/9 -- which is how a consolidation comes
+# to exist at all -- and id_f is new, so the comment must still be planned.
+assert_contains "prior-date guard: a real consolidation is not mistaken for a re-run" "$out" "consolidate  https://github.com/acme/theta/issues/9"
+assert_contains "prior-date guard: delta (no prior write) still files" "$out" "file    acme/delta"
+
+# A manifest that cannot be read stops the run: a guard that silently
+# skips a file has stopped guarding.
+printf '{not json' >"$prior_dir/2000-01-02.json"
+: >"$call_log"
+run_file --clusters "$clusters_json" --owners "$owners_json" --open "$open_jsonl" --tracked "$tracked_json" --apply
+assert_eq "unreadable prior manifest: exit 1" "1" "$rc"
+assert_contains "unreadable prior manifest: names the file" "$err" "2000-01-02.json"
+assert_eq "unreadable prior manifest: no gh call at all" "" "$(cat "$call_log")"
+
+# =====================================================================
+# Label pre-flight edges, against a fresh triage dir and a one-cluster
+# fixture (beta, not fix-now: needs papercut and priority:medium).
+# =====================================================================
+
+export PAPERCUT_TRIAGE_DIR="$workdir/triage-edges"
+beta_only_json="$workdir/clusters-beta-only.json"
+cat >"$beta_only_json" <<EOF
+[
+  {"improvement": "Beta friction cleanup", "papercut_ids": ["$id_b"], "target": "beta", "effort": "medium", "confidence": "high", "severity": "medium", "class": "file"}
+]
+EOF
+
+# A label the repo has only in another case holds the owner, and says so --
+# not "missing", which would send the user looking for a label that exists.
+cat >"$fixtures/labels__acme__beta.json" <<'EOF'
+[{"name": "Papercut"}, {"name": "priority:medium"}]
+EOF
+run_file --clusters "$beta_only_json" --owners "$owners_json" --open "$open_jsonl" --tracked "$tracked_json"
+assert_eq "case mismatch: exit 0" "0" "$rc"
+assert_contains "case mismatch: held, reported as a mismatch" "$out" "held    acme/beta  case mismatch: Papercut vs papercut  clusters=1"
+assert_not_contains "case mismatch: not reported as missing" "$out" "missing="
+assert_not_contains "case mismatch: not filed" "$out" "file    acme/beta"
+
+# Output gh label list should never produce is a clean error, not a traceback.
+printf '{}' >"$fixtures/labels__acme__beta.json"
+run_file --clusters "$beta_only_json" --owners "$owners_json" --open "$open_jsonl" --tracked "$tracked_json"
+assert_eq "malformed label list: exit 1" "1" "$rc"
+assert_contains "malformed label list: names the call" "$err" "gh label list --repo acme/beta: unexpected output"
+assert_not_contains "malformed label list: no Python traceback" "$err" "Traceback"
 
 unset PAPERCUT_GH_CMD PAPERCUT_TRIAGE_DIR
 

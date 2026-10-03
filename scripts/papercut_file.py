@@ -10,10 +10,8 @@ Input:
   --clusters  The enriched clusters `papercut_clusters.py validate-clusters`
               (or `validate-consolidations`) printed: `class` (file, noop, or
               consolidate), `target`, `severity`, `effort`, `confidence`, and
-              -- for a consolidate cluster -- `issue`. A cluster may also
-              carry a model-set `fix_now`, which overrides the effort/
-              confidence rule below either way. `class` is trusted as given;
-              this script never re-derives it.
+              -- for a consolidate cluster -- `issue`. `class` is trusted as
+              given; this script never re-derives it.
   --owners    The owners registry, `papercut_owners.py --json`.
   --open      The open-set JSONL, `papercut_open.py --json` -- read for each
               source papercut's `title` and `suggested_fix`.
@@ -39,18 +37,35 @@ among that repo's file clusters, papercut-fix-now only if some cluster there
 qualifies, plus the owner's declared labels. Not the whole plugin
 vocabulary. Read with `<gh> label list --repo <owner/name> --json name
 --limit 500`. If any name is missing, this run files nothing into that
-owner -- every cluster targeting it is held, and the run continues. This
+owner -- every cluster targeting it is held, and the run continues. A name
+the repo has only in another case (`Papercut` for `papercut`) holds the
+owner too, reported as a case mismatch rather than as missing -- the same
+rule papercut-labels.sh applies, which never creates or renames it. This
 check is read-only and runs in both dry-run and --apply modes.
 
 --render <cluster-index> prints one cluster's title and body and exits --
 no network, no writes.
 
+Re-run guard: before any gh call, every manifest already in
+$PAPERCUT_TRIAGE_DIR is read for the papercut ids it records as filed or
+consolidated. A file cluster with any such id is skipped -- a stale
+--clusters file re-applied, the same day or any later one, must not file
+the same papercuts twice. A consolidate cluster is skipped when every id
+already points at its own issue (the comment was posted), or when any id
+points at a different one (stale). A partial overlap prints "regenerate
+--clusters": only papercut_clusters.py can decide what that cluster
+should become. Skipped clusters take no part in the label pre-flight and
+are not written to the manifest. Dry run and --apply print the same plan.
+
 Manifest: {run_date, filed, consolidated, held, noop, calls} is written to
 $PAPERCUT_TRIAGE_DIR/<run-date>.json (default
 ~/.claude/papercuts/triage/), validated against schema/manifest.v1.json.
-An existing file's other sections (resolved, skipped,
-closed_without_evidence, flush -- written by later tasks) are preserved.
-Only --apply writes the manifest; a dry run is inspection only.
+run_date is fixed when the run starts, so a run that crosses midnight is
+recorded under the day it began. A same-day re-run appends to filed and
+consolidated; held, noop and calls are the latest run's. An existing
+file's other sections (resolved, skipped, closed_without_evidence, flush
+-- written by later tasks) are preserved. Only --apply writes the
+manifest; a dry run is inspection only.
 
 GitHub access goes through $PAPERCUT_GH_CMD (default "gh"), split with
 shlex.split -- the same seam pattern as $PAPERCUT_APPEND_CMD.
@@ -197,11 +212,8 @@ def owner_labels_for(target, registry):
 
 
 def compute_fix_now(cluster):
-    """A model-set `fix_now` overrides the effort/confidence rule either
-    way; otherwise papercut-fix-now applies when effort is low and
-    confidence is high."""
-    if "fix_now" in cluster:
-        return bool(cluster["fix_now"])
+    """papercut-fix-now applies when effort is low and confidence is high
+    (dev_docs/designs/2026-09-07-triage-and-route.md §4.3 step 2)."""
     return cluster["effort"] == "low" and cluster["confidence"] == "high"
 
 
@@ -266,7 +278,13 @@ def _run_gh(args):
 
 def list_repo_labels(repo):
     stdout = _run_gh(["label", "list", "--repo", repo, "--json", "name", "--limit", "500"])
-    return {item["name"] for item in json.loads(stdout)}
+    try:
+        items = json.loads(stdout)
+        if not isinstance(items, list) or not all(isinstance(i, dict) and isinstance(i.get("name"), str) for i in items):
+            raise TypeError("expected a list of {name: string}")
+    except (ValueError, TypeError) as exc:
+        raise FilingError(f"gh label list --repo {repo}: unexpected output: {exc}") from exc
+    return {item["name"] for item in items}
 
 
 def _write_body_file(body):
@@ -298,6 +316,65 @@ def comment_issue(issue_url, body, apply):
         _run_gh(["issue", "comment", issue_url, "--body-file", body_path])
     finally:
         os.unlink(body_path)
+
+
+# --- re-run guard -------------------------------------------------------
+
+MANIFEST_NAME_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}\.json$")
+
+
+def triage_dir():
+    return os.path.expanduser(os.environ.get("PAPERCUT_TRIAGE_DIR") or "~/.claude/papercuts/triage")
+
+
+def prior_writes(directory):
+    """Return {papercut_id: url} from every <run-date>.json manifest in
+    directory: a filed entry's issue URL, or a consolidated entry's issue.
+    A manifest that cannot be read is an error, not a skip -- an unread
+    manifest is a guard that silently stops guarding."""
+    seen = {}
+    if not os.path.isdir(directory):
+        return seen
+    for name in sorted(os.listdir(directory)):
+        if not MANIFEST_NAME_RE.match(name):
+            continue
+        path = os.path.join(directory, name)
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                manifest = json.load(f)
+            for entry in manifest.get("filed", []):
+                for pid in entry["papercut_ids"]:
+                    seen.setdefault(pid, entry["url"])
+            for entry in manifest.get("consolidated", []):
+                for pid in entry["papercut_ids"]:
+                    seen.setdefault(pid, entry["issue"])
+        except (OSError, ValueError, TypeError, KeyError, AttributeError) as exc:
+            raise FilingError(f"cannot read prior manifest {path}: {exc}") from exc
+    return seen
+
+
+def skip_reason(cluster, seen):
+    """None if the cluster should be written this run; otherwise the plan
+    line's text after `skip    `."""
+    ids = cluster["papercut_ids"]
+    hits = {pid: seen[pid] for pid in ids if pid in seen}
+    title = cluster["improvement"]
+
+    if cluster["class"] == "consolidate":
+        issue = cluster["issue"]
+        elsewhere = sorted({url for url in hits.values() if url != issue})
+        if elsewhere:
+            return f"already filed {','.join(elsewhere)}  {title}  (regenerate --clusters)"
+        if len(hits) == len(ids):
+            return f"already consolidated {issue}  {title}"
+        return None
+
+    if not hits:
+        return None
+    urls = ",".join(sorted(set(hits.values())))
+    if len(hits) == len(ids):
+        return f"already filed {urls}  {title}"
+    return f"partly filed {urls}  {title}  (regenerate --clusters)"
 
 
 # --- planning and filing -------------------------------------------------
@@ -356,8 +433,21 @@ def cmd_render(index, clusters, registry, open_records):
 
 
 def cmd_plan(clusters, registry, open_records, tracked_data, apply):
-    file_entries = [(i, c) for i, c in enumerate(clusters) if c.get("class") == "file"]
-    consolidate_entries = [(i, c) for i, c in enumerate(clusters) if c.get("class") == "consolidate"]
+    run_date = datetime.date.today().isoformat()
+    seen = prior_writes(triage_dir())
+
+    file_entries = []
+    consolidate_entries = []
+    for i, c in enumerate(clusters):
+        if c.get("class") not in ("file", "consolidate"):
+            continue
+        reason = skip_reason(c, seen)
+        if reason:
+            print(f"skip    {reason}")
+        elif c["class"] == "file":
+            file_entries.append((i, c))
+        else:
+            consolidate_entries.append((i, c))
     noop_count = sum(1 for c in clusters if c.get("class") == "noop")
 
     by_repo = {}
@@ -370,24 +460,40 @@ def cmd_plan(clusters, registry, open_records, tracked_data, apply):
         entries = by_repo[repo]
         required = label_union(entries, registry)
         existing = list_repo_labels(repo)
-        missing = [label for label in required if label not in existing]
-        if missing:
-            held_repos[repo] = missing
+        by_fold = {name.casefold(): name for name in existing}
+        missing = []
+        mismatched = []
+        for label in required:
+            if label in existing:
+                continue
+            have = by_fold.get(label.casefold())
+            if have is None:
+                missing.append(label)
+            else:
+                mismatched.append((have, label))
+        if missing or mismatched:
+            held_repos[repo] = (missing, mismatched)
 
     held = []
     for repo in sorted(held_repos):
         entries = by_repo[repo]
+        missing, mismatched = held_repos[repo]
         held.append(
             {
                 "repo": repo,
-                "labels": held_repos[repo],
+                "labels": missing + [want for _, want in mismatched],
                 "clusters": [
                     {"papercut_ids": c["papercut_ids"], "target": c["target"], "title": c["improvement"]}
                     for _, c in entries
                 ],
             }
         )
-        print(f"held    {repo}  missing={','.join(held_repos[repo])}  clusters={len(entries)}")
+        reasons = []
+        if missing:
+            reasons.append(f"missing={','.join(missing)}")
+        if mismatched:
+            reasons.append("case mismatch: " + ", ".join(f"{have} vs {want}" for have, want in mismatched))
+        print(f"held    {repo}  {'  '.join(reasons)}  clusters={len(entries)}")
 
     filed = []
     for i, c in file_entries:
@@ -431,26 +537,28 @@ def cmd_plan(clusters, registry, open_records, tracked_data, apply):
     print(f"noop    {noop_count}")
 
     if apply:
-        write_manifest(filed, consolidated, held, noop_count, tracked_data.get("calls", {}))
+        write_manifest(run_date, filed, consolidated, held, noop_count, tracked_data.get("calls", {}))
 
     return 0
 
 
-def write_manifest(filed, consolidated, held, noop_count, calls):
-    triage_dir = os.path.expanduser(os.environ.get("PAPERCUT_TRIAGE_DIR") or "~/.claude/papercuts/triage")
-    os.makedirs(triage_dir, exist_ok=True)
-    run_date = datetime.date.today().isoformat()
-    path = os.path.join(triage_dir, f"{run_date}.json")
+def write_manifest(run_date, filed, consolidated, held, noop_count, calls):
+    directory = triage_dir()
+    os.makedirs(directory, exist_ok=True)
+    path = os.path.join(directory, f"{run_date}.json")
 
     if os.path.isfile(path):
-        with open(path, "r", encoding="utf-8") as f:
-            manifest = json.load(f)
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                manifest = json.load(f)
+        except (OSError, ValueError) as exc:
+            raise FilingError(f"cannot read manifest {path}: {exc}") from exc
     else:
         manifest = {}
 
     manifest["run_date"] = run_date
-    manifest["filed"] = filed
-    manifest["consolidated"] = consolidated
+    manifest["filed"] = manifest.get("filed", []) + filed
+    manifest["consolidated"] = manifest.get("consolidated", []) + consolidated
     manifest["held"] = held
     manifest["noop"] = noop_count
     manifest["calls"] = calls

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/bestdan/papercuts/schema/manifest.v1.json",
   "title": "Triage run manifest v1",
-  "description": "One run's manifest, written to $PAPERCUT_TRIAGE_DIR/<run-date>.json (dev_docs/designs/2026-09-07-triage-and-route.md §4.5). `papercut_file.py` owns and writes run_date, filed, consolidated, held, noop, and calls on every --apply run. `resolved`, `skipped`, `closed_without_evidence`, and `flush` are written by later tasks (papercut_fixed.py and the triage flush step) against this same schema -- they are declared here so the shape is fixed in advance, but papercut_file.py never populates them.",
+  "description": "One run's manifest, written to $PAPERCUT_TRIAGE_DIR/<run-date>.json (dev_docs/designs/2026-09-07-triage-and-route.md §4.5). `papercut_file.py` owns run_date, filed, consolidated, held, noop, and calls: a same-day --apply re-run appends to filed and consolidated and replaces the rest. `resolved`, `skipped`, `closed_without_evidence`, and `flush` are written by later tasks (papercut_fixed.py and the triage flush step) against this same schema -- they are declared here so the shape is fixed in advance, but papercut_file.py never populates them.",
   "type": "object",
   "properties": {
     "run_date": {
