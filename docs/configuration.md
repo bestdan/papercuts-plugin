@@ -183,6 +183,20 @@ reach this script as file paths on the command line (`--owners`, `--open`,
 `--clusters`, `--tracked`), not through the loaders, so none of the other
 variables apply.
 
+### Resolving what merged — `papercut_fixed.py`
+
+| Variable               | Default                      | What it does                                                                                                                            |
+| ---------------------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `PAPERCUT_GH_CMD`      | `gh`                         | The `gh` seam used for the per-issue closer query. Split with `shlex.split`.                                                            |
+| `PAPERCUT_RESOLVE_CMD` | `bash papercut-resolve.sh`   | The resolve seam, called as `<cmd> <pc_id> fixed <pr-url>`. Split with `shlex.split`.                                                   |
+| `PAPERCUT_FLUSH_CMD`   | `bash papercut-flush.sh`     | The flush seam, called as `<cmd> --force` on the default profile only. Split with `shlex.split`.                                        |
+| `PAPERCUT_DETECT_CMD`  | `detect_machine()`           | Profile detection, run with `bash -c` exactly as `papercut-flush.sh` runs it. Anything but `default` is strict, so flush is not called. |
+| `PAPERCUT_TRIAGE_DIR`  | `~/.claude/papercuts/triage` | Where the run manifest, `<run-date>.json`, is read and written. Only `--apply` writes it.                                               |
+
+The tracked index reaches this script as a file path on the command line
+(`--tracked`). The resolve and flush scripts it calls read their own variables,
+documented in their sections.
+
 ### The gate — `papercut_append.py`
 
 | Variable               | Default                             | What it does                                                                                                                                                      |
