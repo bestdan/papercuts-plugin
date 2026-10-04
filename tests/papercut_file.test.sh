@@ -552,7 +552,7 @@ python3 - "$manifest_file" <<'PY'
 import json, sys
 path = sys.argv[1]
 data = json.load(open(path, encoding="utf-8"))
-data["resolved"] = [{"id": "pc_zzzzzzzz-0000-4000-8000-000000000099", "url": "https://example.com/pr/1"}]
+data["resolved"] = [{"id": "pc_zzzzzzzz-0000-4000-8000-000000000099", "issue": "https://example.com/issues/1", "fix_url": "https://example.com/pr/1"}]
 data["flush"] = "resolutions spooled, not published (strict profile)"
 json.dump(data, open(path, "w", encoding="utf-8"))
 PY
@@ -668,6 +668,30 @@ run_file --clusters "$beta_only_json" --owners "$owners_json" --open "$open_json
 assert_eq "malformed label list: exit 1" "1" "$rc"
 assert_contains "malformed label list: names the call" "$err" "gh label list --repo acme/beta: unexpected output"
 assert_not_contains "malformed label list: no Python traceback" "$err" "Traceback"
+
+# `unowned` on a filed entry: true for an external target and the literal
+# unowned, both filed into unowned.repo; false for an owner. The summary's
+# owner and unowned counts read nothing else.
+cat >"$fixtures/labels__acme__ledger.json" <<'EOF'
+[{"name": "papercut"}, {"name": "priority:low"}]
+EOF
+cat >"$fixtures/labels__acme__delta.json" <<'EOF'
+[{"name": "papercut"}, {"name": "priority:low"}]
+EOF
+unowned_json="$workdir/clusters-unowned.json"
+cat >"$unowned_json" <<EOF
+[
+  {"improvement": "External thing", "papercut_ids": ["$id_a"], "target": "claude-code", "effort": "low", "confidence": "low", "severity": "low", "class": "file"},
+  {"improvement": "Unrouted thing", "papercut_ids": ["$id_b"], "target": "unowned", "effort": "low", "confidence": "low", "severity": "low", "class": "file"},
+  {"improvement": "Delta thing", "papercut_ids": ["$id_d"], "target": "delta", "effort": "low", "confidence": "low", "severity": "low", "class": "file"}
+]
+EOF
+export PAPERCUT_TRIAGE_DIR="$workdir/triage-unowned"
+run_file --clusters "$unowned_json" --owners "$owners_json" --open "$open_jsonl" --tracked "$tracked_json" --apply
+assert_eq "unowned flag: exit 0" "0" "$rc"
+out="$(cat "$PAPERCUT_TRIAGE_DIR"/*.json)"
+assert_eq "unowned flag: external and unowned true, owner false" "claude-code:True,unowned:True,delta:False" \
+  "$(jget "','.join(f['target'] + ':' + str(f['unowned']) for f in d['filed'])")"
 
 unset PAPERCUT_GH_CMD PAPERCUT_TRIAGE_DIR
 

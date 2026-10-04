@@ -244,7 +244,7 @@ python3 - "$manifest" <<'PY'
 import json, sys
 d = json.load(open(sys.argv[1]))
 d["filed"] = [{"papercut_ids": ["pc_00000000-0000-4000-8000-000000000000"], "target": "alpha", "repo": "acme/alpha",
-               "title": "t", "labels": ["papercut"], "url": "https://github.com/acme/alpha/issues/99"}]
+               "title": "t", "labels": ["papercut"], "url": "https://github.com/acme/alpha/issues/99", "unowned": False}]
 json.dump(d, open(sys.argv[1], "w"))
 PY
 : >"$call_log"
