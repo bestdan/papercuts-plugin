@@ -115,6 +115,8 @@ def _type_ok(value, expected):
         return isinstance(value, list)
     if expected == "object":
         return isinstance(value, dict)
+    if expected == "boolean":
+        return isinstance(value, bool)
     return True
 
 
@@ -515,6 +517,7 @@ def cmd_plan(clusters, registry, open_records, tracked_data, apply):
                 "title": title,
                 "labels": labels,
                 "url": url or "",
+                "unowned": c["target"] not in registry["owners"],
             }
         )
         line = f"file    {repo}  labels={','.join(labels)}  {title}"

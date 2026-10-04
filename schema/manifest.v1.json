@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/bestdan/papercuts/schema/manifest.v1.json",
   "title": "Triage run manifest v1",
-  "description": "One run's manifest, written to $PAPERCUT_TRIAGE_DIR/<run-date>.json (dev_docs/designs/2026-09-07-triage-and-route.md §4.5). `papercut_file.py` owns run_date, filed, consolidated, held, noop, and calls: a same-day --apply re-run appends to filed and consolidated and replaces the rest. `resolved`, `skipped`, `closed_without_evidence`, and `flush` are written by later tasks (papercut_fixed.py and the triage flush step) against this same schema -- they are declared here so the shape is fixed in advance, but papercut_file.py never populates them.",
+  "description": "One run's manifest, written to $PAPERCUT_TRIAGE_DIR/<run-date>.json (dev_docs/designs/2026-09-07-triage-and-route.md §4.5) and read by papercut_summary.py. `papercut_file.py` owns run_date, filed, consolidated, held, noop, and calls: a same-day --apply re-run appends to filed and consolidated and replaces the rest. A `filed` entry's `unowned` is true when its target is `unowned` or an external target, i.e. it was filed into unowned.repo. `papercut_fixed.py` owns resolved (appended across same-day runs), skipped, closed_without_evidence, and flush (replaced). `failed` records a step that failed partway through a run (issue #35); each script owns the entries for its own steps.",
   "type": "object",
   "properties": {
     "run_date": {
@@ -26,9 +26,10 @@
             "type": "array",
             "items": { "type": "string" }
           },
-          "url": { "type": "string" }
+          "url": { "type": "string" },
+          "unowned": { "type": "boolean" }
         },
-        "required": ["papercut_ids", "target", "repo", "title", "labels", "url"],
+        "required": ["papercut_ids", "target", "repo", "title", "labels", "url", "unowned"],
         "additionalProperties": false
       }
     },
@@ -88,15 +89,64 @@
     "noop": { "type": "integer" },
     "resolved": {
       "type": "array",
-      "items": { "type": "object" }
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "issue": { "type": "string" },
+          "fix_url": { "type": "string" }
+        },
+        "required": ["id", "issue", "fix_url"],
+        "additionalProperties": false
+      }
     },
     "skipped": {
       "type": "array",
-      "items": { "type": "object" }
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "issue": { "type": "string" },
+          "reason": { "type": "string" }
+        },
+        "required": ["id", "issue", "reason"],
+        "additionalProperties": false
+      }
     },
     "closed_without_evidence": {
       "type": "array",
-      "items": { "type": "object" }
+      "items": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string" },
+          "state_reason": {},
+          "closer": {}
+        },
+        "required": ["url", "state_reason", "closer"],
+        "additionalProperties": false
+      }
+    },
+    "failed": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "step": { "type": "string", "enum": ["file", "consolidate", "resolve", "flush"] },
+          "error": { "type": "string" },
+          "papercut_ids": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "target": { "type": "string" },
+          "repo": { "type": "string" },
+          "title": { "type": "string" },
+          "issue": { "type": "string" },
+          "id": { "type": "string" },
+          "fix_url": { "type": "string" }
+        },
+        "required": ["step", "error"],
+        "additionalProperties": false
+      }
     },
     "flush": { "type": "string" },
     "calls": { "type": "object" }

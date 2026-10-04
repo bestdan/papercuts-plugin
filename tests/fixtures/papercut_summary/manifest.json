@@ -1,0 +1,204 @@
+{
+  "run_date": "2026-09-07",
+  "filed": [
+    {
+      "papercut_ids": [
+        "pc_00000001-0000-4000-8000-000000000001"
+      ],
+      "target": "alpha",
+      "repo": "acme/alpha",
+      "title": "alpha improvement 1",
+      "labels": [
+        "papercut",
+        "priority:medium"
+      ],
+      "url": "https://github.com/acme/alpha/issues/100",
+      "unowned": false
+    },
+    {
+      "papercut_ids": [
+        "pc_00000002-0000-4000-8000-000000000002"
+      ],
+      "target": "alpha",
+      "repo": "acme/alpha",
+      "title": "alpha improvement 2",
+      "labels": [
+        "papercut",
+        "priority:medium"
+      ],
+      "url": "https://github.com/acme/alpha/issues/101",
+      "unowned": false
+    },
+    {
+      "papercut_ids": [
+        "pc_00000003-0000-4000-8000-000000000003"
+      ],
+      "target": "alpha",
+      "repo": "acme/alpha",
+      "title": "alpha improvement 3",
+      "labels": [
+        "papercut",
+        "priority:medium"
+      ],
+      "url": "https://github.com/acme/alpha/issues/102",
+      "unowned": false
+    },
+    {
+      "papercut_ids": [
+        "pc_00000004-0000-4000-8000-000000000004"
+      ],
+      "target": "alpha",
+      "repo": "acme/alpha",
+      "title": "alpha improvement 4",
+      "labels": [
+        "papercut",
+        "priority:medium"
+      ],
+      "url": "https://github.com/acme/alpha/issues/103",
+      "unowned": false
+    },
+    {
+      "papercut_ids": [
+        "pc_00000005-0000-4000-8000-000000000005"
+      ],
+      "target": "beta",
+      "repo": "acme/beta",
+      "title": "beta improvement 1",
+      "labels": [
+        "papercut",
+        "priority:medium"
+      ],
+      "url": "https://github.com/acme/beta/issues/100",
+      "unowned": false
+    },
+    {
+      "papercut_ids": [
+        "pc_00000006-0000-4000-8000-000000000006"
+      ],
+      "target": "beta",
+      "repo": "acme/beta",
+      "title": "beta improvement 2",
+      "labels": [
+        "papercut",
+        "priority:medium"
+      ],
+      "url": "https://github.com/acme/beta/issues/101",
+      "unowned": false
+    },
+    {
+      "papercut_ids": [
+        "pc_00000007-0000-4000-8000-000000000007"
+      ],
+      "target": "gamma",
+      "repo": "acme/gamma",
+      "title": "gamma improvement 1",
+      "labels": [
+        "papercut",
+        "priority:medium"
+      ],
+      "url": "https://github.com/acme/gamma/issues/100",
+      "unowned": false
+    },
+    {
+      "papercut_ids": [
+        "pc_00000008-0000-4000-8000-000000000008"
+      ],
+      "target": "claude-code",
+      "repo": "acme/ledger",
+      "title": "harness improvement",
+      "labels": [
+        "papercut",
+        "priority:low"
+      ],
+      "url": "https://github.com/acme/ledger/issues/7",
+      "unowned": true
+    },
+    {
+      "papercut_ids": [
+        "pc_00000009-0000-4000-8000-000000000009"
+      ],
+      "target": "unowned",
+      "repo": "acme/ledger",
+      "title": "unrouted improvement",
+      "labels": [
+        "papercut",
+        "priority:low"
+      ],
+      "url": "https://github.com/acme/ledger/issues/8",
+      "unowned": true
+    }
+  ],
+  "consolidated": [
+    {
+      "papercut_ids": [
+        "pc_0000000a-0000-4000-8000-00000000000a",
+        "pc_0000000b-0000-4000-8000-00000000000b"
+      ],
+      "target": "alpha",
+      "repo": "acme/alpha",
+      "issue": "https://github.com/acme/alpha/issues/50"
+    },
+    {
+      "papercut_ids": [
+        "pc_0000000c-0000-4000-8000-00000000000c"
+      ],
+      "target": "beta",
+      "repo": "acme/beta",
+      "issue": "https://github.com/acme/beta/issues/51"
+    }
+  ],
+  "held": [
+    {
+      "repo": "acme/delta",
+      "labels": [
+        "priority:high",
+        "papercut-fix-now"
+      ],
+      "clusters": [
+        {
+          "papercut_ids": [
+            "pc_0000000d-0000-4000-8000-00000000000d"
+          ],
+          "target": "delta",
+          "title": "delta improvement"
+        }
+      ]
+    }
+  ],
+  "noop": 2,
+  "calls": {
+    "list": 5,
+    "comments": 1
+  },
+  "resolved": [
+    {
+      "id": "pc_0000000e-0000-4000-8000-00000000000e",
+      "issue": "https://github.com/acme/alpha/issues/40",
+      "fix_url": "https://github.com/acme/alpha/pull/41"
+    },
+    {
+      "id": "pc_0000000f-0000-4000-8000-00000000000f",
+      "issue": "https://github.com/acme/alpha/issues/40",
+      "fix_url": "https://github.com/acme/alpha/pull/41"
+    },
+    {
+      "id": "pc_00000010-0000-4000-8000-000000000010",
+      "issue": "https://github.com/acme/alpha/issues/40",
+      "fix_url": "https://github.com/acme/alpha/pull/41"
+    },
+    {
+      "id": "pc_00000011-0000-4000-8000-000000000011",
+      "issue": "https://github.com/acme/alpha/issues/40",
+      "fix_url": "https://github.com/acme/alpha/pull/41"
+    }
+  ],
+  "skipped": [],
+  "closed_without_evidence": [
+    {
+      "url": "https://github.com/acme/beta/issues/30",
+      "state_reason": "NOT_PLANNED",
+      "closer": null
+    }
+  ],
+  "flush": "papercut-flush: published 4 record(s) to ledger/2026-09.jsonl @ abc1234 on origin/main (local clone intentionally untouched)"
+}
